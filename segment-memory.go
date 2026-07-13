@@ -1,4 +1,4 @@
-package lcc
+package cova
 
 import (
 	"encoding/binary"

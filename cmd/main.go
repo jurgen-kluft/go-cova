@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	lcc "github.com/jurgen-kluft/go-lcc"
+	cova "github.com/jurgen-kluft/go-cova"
 )
 
 func main() {
@@ -31,23 +31,23 @@ void reduce_health(int delta) {
 }
 `
 
-	tokens, err := lcc.Tokenize(script)
+	tokens, err := cova.Tokenize(script)
 	check(err)
 
-	program, err := lcc.Parse(tokens)
+	program, err := cova.Parse(tokens)
 	check(err)
 
-	compiler := lcc.NewCompiler()
+	compiler := cova.NewCompiler()
 	compiled, err := compiler.Compile(program)
 	check(err)
 
-	linker := lcc.NewLinker(len(externMemory), 1)
+	linker := cova.NewLinker(len(externMemory), 1)
 	linked, err := linker.Link(program, compiled)
 	check(err)
 
-	vm := lcc.NewVM(256)
+	vm := cova.NewVM(256)
 	vm.BindExternBlock(externMemory)
-	vm.RegisterExternDispatcher(func(vm *lcc.VM, importID int) error {
+	vm.RegisterExternDispatcher(func(vm *cova.VM, importID int) error {
 		if importID != 0 {
 			return fmt.Errorf("unexpected extern import id %d", importID)
 		}

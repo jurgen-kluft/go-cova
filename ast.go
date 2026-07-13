@@ -1,4 +1,4 @@
-package lcc
+package cova
 
 type ProgramNode struct {
 	Decls     []*TopLevelDeclNode

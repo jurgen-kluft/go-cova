@@ -1,8 +1,8 @@
-# go-lcc Script Language
+# Cova Script Language
 
-This document describes the scripting language currently supported by `go-lcc`.
+This document describes the scripting language currently supported by `go-cova`.
 
-The language is a small, typed, C-like scripting language intended to compile into bytecode and run inside the `go-lcc` VM. It supports primitive numeric types, global variables, functions, control flow, and host interop through `extern` declarations.
+The language is a small, typed, C-like scripting language intended to compile into bytecode and run inside the `go-cova` VM. It supports primitive numeric types, global variables, functions, control flow, and host interop through `extern` declarations.
 
 ## Example
 

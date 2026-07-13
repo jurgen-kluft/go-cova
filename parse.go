@@ -1,4 +1,4 @@
-package lcc
+package cova
 
 func Parse(tokens []Token) (*ProgramNode, error) {
 	core := newParserCore(tokens)

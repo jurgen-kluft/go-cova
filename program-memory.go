@@ -1,4 +1,4 @@
-package lcc
+package cova
 
 type ProgramMemory struct {
 	segment [segmentCount]MemorySegment

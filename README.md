@@ -1,6 +1,6 @@
-# go-lcc
+# Cova
 
-`go-lcc` is a small compiler, linker, and VM for a typed, C-like scripting language.
+`cova` is a small compiler, linker, and VM for a typed, C-like scripting language.
 
 The language is designed for small host-integrated scripts that work with primitive numeric types, control flow, global state, and `extern` bindings for memory and host functions.
 

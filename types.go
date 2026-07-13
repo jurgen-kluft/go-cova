@@ -1,4 +1,4 @@
-package lcc
+package cova
 
 type TypeKind uint8
 
