@@ -55,7 +55,7 @@ void reduce_health(int delta) {
 
 ## Documentation
 
-- Full language overview: [LANGUAGE.md](LANGUAGE.md)
+- Full language overview: [LANGUAGE.md](docs/LANGUAGE.md)
 
 ## Development
 
