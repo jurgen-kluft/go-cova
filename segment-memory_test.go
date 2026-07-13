@@ -50,3 +50,16 @@ func TestMemorySegmentAppendAndTruncateBits(t *testing.T) {
 		t.Fatal("expected stack underflow error")
 	}
 }
+
+func TestMemorySegmentAppendRejectsCapacityOverflow(t *testing.T) {
+	segment := NewMemorySegment(0, 4)
+	if err := segment.AppendBits(KindInt32, 42); err != nil {
+		t.Fatalf("AppendBits within capacity failed: %v", err)
+	}
+	if err := segment.AppendBits(KindByte, 1); err == nil {
+		t.Fatal("expected stack capacity error")
+	}
+	if len(segment) != 4 {
+		t.Fatalf("expected failed append to preserve length 4, got %d", len(segment))
+	}
+}

@@ -21,17 +21,33 @@ type VM struct {
 	frameTop         int
 }
 
-func NewVM(frameCapacity int) *VM {
-	return NewVMWithCallFrameCapacity(frameCapacity, 8)
+type VMConfig struct {
+	FrameCapacity     int
+	StackCapacity     int
+	CallFrameCapacity int
 }
 
-func NewVMWithCallFrameCapacity(frameCapacity int, callFrameCapacity int) *VM {
-	if callFrameCapacity < 1 {
-		callFrameCapacity = 1
+func NewVM(frameCapacity int) *VM {
+	return NewVMWithConfig(VMConfig{
+		FrameCapacity:     frameCapacity,
+		StackCapacity:     256,
+		CallFrameCapacity: 8,
+	})
+}
+
+func NewVMWithConfig(config VMConfig) *VM {
+	if config.FrameCapacity < 0 {
+		config.FrameCapacity = 0
+	}
+	if config.StackCapacity < 0 {
+		config.StackCapacity = 0
+	}
+	if config.CallFrameCapacity < 1 {
+		config.CallFrameCapacity = 1
 	}
 	return &VM{
-		memory:     NewProgramMemory(0, 0, 0, 0, frameCapacity, 32),
-		callFrames: make([]callFrame, callFrameCapacity),
+		memory:     NewProgramMemory(0, 0, 0, 0, config.FrameCapacity, config.StackCapacity),
+		callFrames: make([]callFrame, config.CallFrameCapacity),
 	}
 }
 
@@ -184,26 +200,45 @@ func (vm *VM) PopFloat64() (float64, error) {
 }
 
 func (vm *VM) Run(program *LinkedProgram) error {
+	if err := vm.LoadProgram(program); err != nil {
+		return err
+	}
+	return vm.RunLoaded()
+}
+
+func (vm *VM) LoadProgram(program *LinkedProgram) error {
 	if program == nil {
 		return fmt.Errorf("vm error: linked program is nil")
 	}
+	if program.BSSByteSize < 0 {
+		return fmt.Errorf("vm error: invalid bss byte size %d", program.BSSByteSize)
+	}
+	if program.ConstByteSize < 0 || program.ConstByteSize != len(program.ConstData) {
+		return fmt.Errorf("vm error: const image size mismatch: declared %d, got %d", program.ConstByteSize, len(program.ConstData))
+	}
+	if program.DataByteSize < 0 || program.DataByteSize != len(program.DataData) {
+		return fmt.Errorf("vm error: data image size mismatch: declared %d, got %d", program.DataByteSize, len(program.DataData))
+	}
 	if len(vm.memory.segment[segmentBSS]) != program.BSSByteSize {
 		vm.memory.segment[segmentBSS] = make([]byte, program.BSSByteSize)
-	} else {
-		for index := range vm.memory.segment[segmentBSS] {
-			vm.memory.segment[segmentBSS][index] = 0
-		}
 	}
-	if len(vm.memory.segment[segmentConst]) != program.ConstByteSize {
-		vm.memory.segment[segmentConst] = make([]byte, program.ConstByteSize)
-	}
-	copy(vm.memory.segment[segmentConst], program.ConstData)
 	if len(vm.memory.segment[segmentData]) != program.DataByteSize {
 		vm.memory.segment[segmentData] = make([]byte, program.DataByteSize)
 	}
-	copy(vm.memory.segment[segmentData], program.DataData)
-
+	vm.memory.segment[segmentConst] = MemorySegment(program.ConstData)
 	vm.program = program
+	return nil
+}
+
+func (vm *VM) Reset() error {
+	if vm.program == nil {
+		return fmt.Errorf("vm error: no linked program loaded")
+	}
+	program := vm.program
+	for index := range vm.memory.segment[segmentBSS] {
+		vm.memory.segment[segmentBSS][index] = 0
+	}
+	copy(vm.memory.segment[segmentData], program.DataData)
 	vm.pc = 0
 	vm.memory.segment[segmentStack] = vm.memory.segment[segmentStack][:0]
 	for index := range vm.memory.segment[segmentFrame] {
@@ -221,7 +256,14 @@ func (vm *VM) Run(program *LinkedProgram) error {
 	if err := vm.enterScriptFunction(program.EntryPoint, -1, false); err != nil {
 		return err
 	}
+	return nil
+}
 
+func (vm *VM) RunLoaded() error {
+	if err := vm.Reset(); err != nil {
+		return err
+	}
+	program := vm.program
 	for vm.pc < len(program.Text) {
 		instruction, err := program.Text.ReadInstructionChecked(&vm.pc)
 		if err != nil {

@@ -908,16 +908,64 @@ int script_main() {
 
 	linked := mustLinkProgram(t, script, 0, 0)
 	vm := NewVM(testFrameCapacityBytes)
-	if err := vm.Run(linked); err != nil {
-		t.Fatalf("warm-up Run failed: %v", err)
+	if err := vm.LoadProgram(linked); err != nil {
+		t.Fatalf("LoadProgram failed: %v", err)
+	}
+	if err := vm.RunLoaded(); err != nil {
+		t.Fatalf("warm-up RunLoaded failed: %v", err)
 	}
 	allocations := testing.AllocsPerRun(100, func() {
-		if err := vm.Run(linked); err != nil {
+		if err := vm.RunLoaded(); err != nil {
 			panic(err)
 		}
 	})
 	if allocations != 0 {
 		t.Fatalf("expected zero allocations per prepared run, got %v", allocations)
+	}
+}
+
+func TestRunFailsWhenOperandStackCapacityTooSmall(t *testing.T) {
+	script := `
+int script_main() {
+	return 1 + 2;
+}
+`
+
+	linked := mustLinkProgram(t, script, 0, 0)
+	vm := NewVMWithConfig(VMConfig{
+		FrameCapacity:     testFrameCapacityBytes,
+		StackCapacity:     4,
+		CallFrameCapacity: 8,
+	})
+	if err := vm.Run(linked); err == nil || !strings.Contains(err.Error(), "stack capacity exceeded") {
+		t.Fatalf("expected stack capacity error, got %v", err)
+	}
+}
+
+func TestRunLoadedResetsDataAndBSS(t *testing.T) {
+	script := `
+int initialized = 3;
+int zeroed;
+
+int script_main() {
+	initialized = initialized + 1;
+	zeroed = zeroed + 2;
+	return initialized + zeroed;
+}
+`
+
+	linked := mustLinkProgram(t, script, 0, 0)
+	vm := NewVM(testFrameCapacityBytes)
+	if err := vm.LoadProgram(linked); err != nil {
+		t.Fatalf("LoadProgram failed: %v", err)
+	}
+	for run := 0; run < 2; run++ {
+		if err := vm.RunLoaded(); err != nil {
+			t.Fatalf("RunLoaded %d failed: %v", run, err)
+		}
+		if got, err := vm.PopInt32(); err != nil || got != 6 {
+			t.Fatalf("run %d expected reset result 6, got %d err=%v", run, got, err)
+		}
 	}
 }
 

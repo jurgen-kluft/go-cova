@@ -124,7 +124,10 @@ func (segment *MemorySegment) AppendBits(kind ValueKind, bits uint64) error {
 		return fmt.Errorf("unsupported stack value kind %d", kind)
 	}
 	base := len(*segment)
-	*segment = append(*segment, make([]byte, size)...)
+	if size > cap(*segment)-base {
+		return fmt.Errorf("vm error: stack capacity exceeded: need %d bytes, have %d", base+size, cap(*segment))
+	}
+	*segment = (*segment)[:base+size]
 	return segment.WriteBits(base, kind, bits)
 }
 
