@@ -142,17 +142,15 @@ func (compiler *Compiler) Compile(program *ProgramNode) (*RelocatableProgram, er
 	}
 
 	compiled := &RelocatableProgram{
-		Text:          compiler.code.Clone(),
-		Symbols:       cloneBindingsMap(compiler.symbolBindings),
-		ExternSymbols: append([]SymbolBinding(nil), compiler.externSymbols...),
-		BSSSymbols:    append([]SymbolBinding(nil), compiler.bssSymbols...),
-		Functions:     append([]SymbolBinding(nil), compiler.functions...),
-		CallPatches:   append([]CallPatch(nil), compiler.callPatches...),
-		EntryFunction: compiler.entryFunction,
-		FrameSize:     compiler.maxLocalSlots,
-		FrameByteSize: compiler.maxFrameByteSize,
-		BSSSize:       len(compiler.bssSymbols),
-		BSSByteSize:   compiler.bssByteSize,
+		Text:           compiler.code.Clone(),
+		ProgramSymbols: NewProgramSymbols(),
+		Functions:      append([]SymbolBinding(nil), compiler.functions...),
+		CallPatches:    append([]CallPatch(nil), compiler.callPatches...),
+		EntryFunction:  compiler.entryFunction,
+		FrameSize:      compiler.maxLocalSlots,
+		FrameByteSize:  compiler.maxFrameByteSize,
+		BSSSize:        len(compiler.bssSymbols),
+		BSSByteSize:    compiler.bssByteSize,
 	}
 	return compiled, nil
 }

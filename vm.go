@@ -12,7 +12,7 @@ type callFrame struct {
 }
 
 type VM struct {
-	Memory           ProgramMemory
+	memory           ProgramMemory
 	pc               int
 	program          *LinkedProgram
 	externDispatcher ExternDispatcher
@@ -30,24 +30,24 @@ func NewVMWithCallFrameCapacity(frameCapacity int, callFrameCapacity int) *VM {
 		callFrameCapacity = 1
 	}
 	return &VM{
-		Memory:     NewProgramMemory(0, 0, frameCapacity, 32),
+		memory:     NewProgramMemory(0, 0, frameCapacity, 32),
 		callFrames: make([]callFrame, callFrameCapacity),
 	}
 }
 
 func (vm *VM) AllocateExternMemory(size int) {
-	vm.Memory.segment[segmentExtern] = NewMemorySegment(size, size)
+	vm.memory.segment[segmentExtern] = NewMemorySegment(size, size)
 }
 
 func (vm *VM) BindExternBlock(block []byte) {
-	vm.Memory.segment[segmentExtern] = block
+	vm.memory.segment[segmentExtern] = block
 }
 
 func (vm *VM) LoadExternInt32(offset int) int {
-	if offset < 0 || offset+4 > len(vm.Memory.segment[segmentExtern]) {
+	if offset < 0 || offset+4 > len(vm.memory.segment[segmentExtern]) {
 		return 0
 	}
-	bits, err := vm.Memory.ReadBits(makeAddress(segmentExtern, offset), KindInt32)
+	bits, err := vm.memory.ReadBits(makeAddress(segmentExtern, offset), KindInt32)
 	if err != nil {
 		return 0
 	}
@@ -55,10 +55,10 @@ func (vm *VM) LoadExternInt32(offset int) int {
 }
 
 func (vm *VM) StoreExternInt32(offset int, value int) {
-	if offset < 0 || offset+4 > len(vm.Memory.segment[segmentExtern]) {
+	if offset < 0 || offset+4 > len(vm.memory.segment[segmentExtern]) {
 		return
 	}
-	_ = vm.Memory.WriteBits(makeAddress(segmentExtern, offset), KindInt32, uint64(uint32(int32(value))))
+	_ = vm.memory.WriteBits(makeAddress(segmentExtern, offset), KindInt32, uint64(uint32(int32(value))))
 }
 
 func (vm *VM) RegisterExternDispatcher(dispatcher ExternDispatcher) {
@@ -187,19 +187,19 @@ func (vm *VM) Run(program *LinkedProgram) error {
 	if program == nil {
 		return fmt.Errorf("vm error: linked program is nil")
 	}
-	if len(vm.Memory.segment[segmentBSS]) != program.BSSByteSize {
-		vm.Memory.segment[segmentBSS] = make([]byte, program.BSSByteSize)
+	if len(vm.memory.segment[segmentBSS]) != program.BSSByteSize {
+		vm.memory.segment[segmentBSS] = make([]byte, program.BSSByteSize)
 	} else {
-		for index := range vm.Memory.segment[segmentBSS] {
-			vm.Memory.segment[segmentBSS][index] = 0
+		for index := range vm.memory.segment[segmentBSS] {
+			vm.memory.segment[segmentBSS][index] = 0
 		}
 	}
 
 	vm.program = program
 	vm.pc = 0
-	vm.Memory.segment[segmentStack] = vm.Memory.segment[segmentStack][:0]
-	for index := range vm.Memory.segment[segmentFrame] {
-		vm.Memory.segment[segmentFrame][index] = 0
+	vm.memory.segment[segmentStack] = vm.memory.segment[segmentStack][:0]
+	for index := range vm.memory.segment[segmentFrame] {
+		vm.memory.segment[segmentFrame][index] = 0
 	}
 	vm.callFrameTop = 0
 	vm.frameTop = 0
@@ -305,7 +305,7 @@ func (vm *VM) Run(program *LinkedProgram) error {
 			if err != nil {
 				return err
 			}
-			value, err := vm.Memory.ReadBits(encodedAddress, kind)
+			value, err := vm.memory.ReadBits(encodedAddress, kind)
 			if err != nil {
 				return err
 			}
@@ -324,7 +324,7 @@ func (vm *VM) Run(program *LinkedProgram) error {
 			if err != nil {
 				return err
 			}
-			if err := vm.Memory.WriteBits(encodedAddress, kind, value); err != nil {
+			if err := vm.memory.WriteBits(encodedAddress, kind, value); err != nil {
 				return err
 			}
 		case OpEqual:
@@ -426,11 +426,11 @@ func (vm *VM) enterScriptFunction(entryAddress int, args []uint64, returnPC int)
 		return fmt.Errorf("vm error: function at %d expects %d args, got %d", entryAddress, header.ParamCount, len(args))
 	}
 	localBase := vm.frameTop
-	if localBase+header.FrameByteSize > len(vm.Memory.segment[segmentFrame]) {
-		return fmt.Errorf("vm error: frame capacity exceeded: need %d bytes, have %d", localBase+header.FrameByteSize, len(vm.Memory.segment[segmentFrame]))
+	if localBase+header.FrameByteSize > len(vm.memory.segment[segmentFrame]) {
+		return fmt.Errorf("vm error: frame capacity exceeded: need %d bytes, have %d", localBase+header.FrameByteSize, len(vm.memory.segment[segmentFrame]))
 	}
 	for offset := localBase; offset < localBase+header.FrameByteSize; offset++ {
-		vm.Memory.segment[segmentFrame][offset] = 0
+		vm.memory.segment[segmentFrame][offset] = 0
 	}
 	for index, value := range args {
 		if index >= len(header.ParamOffsets) {
@@ -440,7 +440,7 @@ func (vm *VM) enterScriptFunction(entryAddress int, args []uint64, returnPC int)
 		if index < len(header.ParamKinds) && header.ParamKinds[index] != KindNone {
 			kind = header.ParamKinds[index]
 		}
-		if err := vm.Memory.WriteBits(makeAddress(segmentFrame, localBase+header.ParamOffsets[index]), kind, value); err != nil {
+		if err := vm.memory.WriteBits(makeAddress(segmentFrame, localBase+header.ParamOffsets[index]), kind, value); err != nil {
 			return err
 		}
 	}
@@ -522,19 +522,19 @@ func (vm *VM) returnFromFunction() (bool, error) {
 }
 
 func (vm *VM) pushKind(kind ValueKind, bits uint64) error {
-	return appendStackBits(&vm.Memory.segment[segmentStack], kind, bits)
+	return appendStackBits(&vm.memory.segment[segmentStack], kind, bits)
 }
 
 func (vm *VM) pushInt32(value int) {
-	_ = appendStackBits(&vm.Memory.segment[segmentStack], KindInt32, uint64(uint32(int32(value))))
+	_ = appendStackBits(&vm.memory.segment[segmentStack], KindInt32, uint64(uint32(int32(value))))
 }
 
 func (vm *VM) pushAddress(address Address) error {
-	return appendAddress(&vm.Memory.segment[segmentStack], address)
+	return appendAddress(&vm.memory.segment[segmentStack], address)
 }
 
 func (vm *VM) popInt32() (int, error) {
-	bits, err := truncateStackBits(&vm.Memory.segment[segmentStack], KindInt32)
+	bits, err := truncateStackBits(&vm.memory.segment[segmentStack], KindInt32)
 	if err != nil {
 		return 0, err
 	}
@@ -542,7 +542,7 @@ func (vm *VM) popInt32() (int, error) {
 }
 
 func (vm *VM) popAddress() (Address, error) {
-	bits, err := truncateStackBits(&vm.Memory.segment[segmentStack], KindAddress)
+	bits, err := truncateStackBits(&vm.memory.segment[segmentStack], KindAddress)
 	if err != nil {
 		return 0, err
 	}
@@ -550,11 +550,11 @@ func (vm *VM) popAddress() (Address, error) {
 }
 
 func (vm *VM) popKind(kind ValueKind) (uint64, error) {
-	return truncateStackBits(&vm.Memory.segment[segmentStack], kind)
+	return truncateStackBits(&vm.memory.segment[segmentStack], kind)
 }
 
 func (vm *VM) popBinary(kind ValueKind) (right uint64, left uint64, err error) {
-	return popBinaryBits(&vm.Memory.segment[segmentStack], kind)
+	return popBinaryBits(&vm.memory.segment[segmentStack], kind)
 }
 
 func appendStackBits(stack *MemorySegment, kind ValueKind, bits uint64) error {

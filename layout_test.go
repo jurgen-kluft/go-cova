@@ -30,25 +30,25 @@ void script_main(int8 tag, uint64 mask) {
 		t.Fatalf("Compile failed: %v", err)
 	}
 
-	if len(compiled.ExternSymbols) != 1 {
-		t.Fatalf("expected 1 extern symbol, got %d", len(compiled.ExternSymbols))
+	if len(compiled.ProgramSymbols.ExternSymbols) != 1 {
+		t.Fatalf("expected 1 extern symbol, got %d", len(compiled.ProgramSymbols.ExternSymbols))
 	}
-	extern := compiled.ExternSymbols[0]
+	extern := compiled.ProgramSymbols.ExternSymbols[0]
 	if extern.ByteOffset != 8 || extern.ByteSize != 8 || extern.ByteAlignment != 8 {
 		t.Fatalf("unexpected extern layout: offset=%d size=%d align=%d", extern.ByteOffset, extern.ByteSize, extern.ByteAlignment)
 	}
 
-	if len(compiled.BSSSymbols) != 3 {
-		t.Fatalf("expected 3 bss symbols, got %d", len(compiled.BSSSymbols))
+	if len(compiled.ProgramSymbols.BSSSymbols) != 3 {
+		t.Fatalf("expected 3 bss symbols, got %d", len(compiled.ProgramSymbols.BSSSymbols))
 	}
-	if compiled.BSSSymbols[0].ByteOffset != 0 {
-		t.Fatalf("expected ready at bss offset 0, got %d", compiled.BSSSymbols[0].ByteOffset)
+	if compiled.ProgramSymbols.BSSSymbols[0].ByteOffset != 0 {
+		t.Fatalf("expected ready at bss offset 0, got %d", compiled.ProgramSymbols.BSSSymbols[0].ByteOffset)
 	}
-	if compiled.BSSSymbols[1].ByteOffset != 4 {
-		t.Fatalf("expected count at bss offset 4, got %d", compiled.BSSSymbols[1].ByteOffset)
+	if compiled.ProgramSymbols.BSSSymbols[1].ByteOffset != 4 {
+		t.Fatalf("expected count at bss offset 4, got %d", compiled.ProgramSymbols.BSSSymbols[1].ByteOffset)
 	}
-	if compiled.BSSSymbols[2].ByteOffset != 8 {
-		t.Fatalf("expected small at bss offset 8, got %d", compiled.BSSSymbols[2].ByteOffset)
+	if compiled.ProgramSymbols.BSSSymbols[2].ByteOffset != 8 {
+		t.Fatalf("expected small at bss offset 8, got %d", compiled.ProgramSymbols.BSSSymbols[2].ByteOffset)
 	}
 	if compiled.BSSByteSize != 10 {
 		t.Fatalf("expected bss byte size 10, got %d", compiled.BSSByteSize)

@@ -522,8 +522,8 @@ void script_main() {
 	}
 	counterOffset := linked.DebugSymbols.Symbols["counter"].ByteOffset
 	totalOffset := linked.DebugSymbols.Symbols["total"].ByteOffset
-	counterBits := binary.LittleEndian.Uint32(vm.Memory.segment[segmentBSS][counterOffset : counterOffset+4])
-	totalBits := binary.LittleEndian.Uint32(vm.Memory.segment[segmentBSS][totalOffset : totalOffset+4])
+	counterBits := binary.LittleEndian.Uint32(vm.memory.segment[segmentBSS][counterOffset : counterOffset+4])
+	totalBits := binary.LittleEndian.Uint32(vm.memory.segment[segmentBSS][totalOffset : totalOffset+4])
 	if int32(counterBits) != 5 {
 		t.Fatalf("expected counter 5, got %d", int32(counterBits))
 	}
@@ -568,8 +568,8 @@ void script_main() {
 	}
 	counterOffset := linked.DebugSymbols.Symbols["counter"].ByteOffset
 	totalOffset := linked.DebugSymbols.Symbols["total"].ByteOffset
-	counterBits := binary.LittleEndian.Uint32(vm.Memory.segment[segmentBSS][counterOffset : counterOffset+4])
-	totalBits := binary.LittleEndian.Uint32(vm.Memory.segment[segmentBSS][totalOffset : totalOffset+4])
+	counterBits := binary.LittleEndian.Uint32(vm.memory.segment[segmentBSS][counterOffset : counterOffset+4])
+	totalBits := binary.LittleEndian.Uint32(vm.memory.segment[segmentBSS][totalOffset : totalOffset+4])
 	if int32(counterBits) != 4 {
 		t.Fatalf("expected counter 4 after break, got %d", int32(counterBits))
 	}
@@ -620,7 +620,7 @@ void script_main() {
 		t.Fatalf("Run failed: %v", err)
 	}
 	totalOffset := linked.DebugSymbols.Symbols["total"].ByteOffset
-	totalBits := binary.LittleEndian.Uint32(vm.Memory.segment[segmentBSS][totalOffset : totalOffset+4])
+	totalBits := binary.LittleEndian.Uint32(vm.memory.segment[segmentBSS][totalOffset : totalOffset+4])
 	if int32(totalBits) != 23 {
 		t.Fatalf("expected total 23, got %d", int32(totalBits))
 	}
@@ -648,7 +648,7 @@ void script_main() {
 		t.Fatalf("Run failed: %v", err)
 	}
 	totalOffset := linked.DebugSymbols.Symbols["total"].ByteOffset
-	totalBits := binary.LittleEndian.Uint32(vm.Memory.segment[segmentBSS][totalOffset : totalOffset+4])
+	totalBits := binary.LittleEndian.Uint32(vm.memory.segment[segmentBSS][totalOffset : totalOffset+4])
 	if int32(totalBits) != 10 {
 		t.Fatalf("expected total 10, got %d", int32(totalBits))
 	}

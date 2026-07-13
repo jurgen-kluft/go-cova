@@ -30,10 +30,10 @@ func TestProgramMemoryRoutesByAddressSegment(t *testing.T) {
 func TestVMAllocateExternMemoryCreatesOwnedExternSegment(t *testing.T) {
 	vm := NewVM(8)
 	vm.AllocateExternMemory(16)
-	if len(vm.Memory.segment[segmentExtern]) != 16 {
-		t.Fatalf("expected owned extern memory size 16, got %d", len(vm.Memory.segment[segmentExtern]))
+	if len(vm.memory.segment[segmentExtern]) != 16 {
+		t.Fatalf("expected owned extern memory size 16, got %d", len(vm.memory.segment[segmentExtern]))
 	}
-	if err := vm.Memory.WriteBits(makeAddress(segmentExtern, 4), KindInt32, uint64(uint32(99))); err != nil {
+	if err := vm.memory.WriteBits(makeAddress(segmentExtern, 4), KindInt32, uint64(uint32(99))); err != nil {
 		t.Fatalf("expected write into allocated extern memory to succeed: %v", err)
 	}
 }

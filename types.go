@@ -298,12 +298,6 @@ type CallPatch struct {
 	Line       int
 }
 
-type DebugSymbols struct {
-	Symbols       map[string]SymbolBinding
-	ExternSymbols []SymbolBinding
-	BSSSymbols    []SymbolBinding
-}
-
 const scriptFunctionHeaderMagic byte = 0xf1
 
 type ScriptFunctionHeader struct {
@@ -450,6 +444,32 @@ func (code CodeMemory) ReadFunctionHeader(address int) (ScriptFunctionHeader, er
 	return header, nil
 }
 
+type ProgramSymbols struct {
+	Symbols       map[string]SymbolBinding
+	ExternSymbols []SymbolBinding
+	BSSSymbols    []SymbolBinding
+}
+
+func NewProgramSymbols() *ProgramSymbols {
+	return &ProgramSymbols{
+		Symbols:       make(map[string]SymbolBinding),
+		ExternSymbols: make([]SymbolBinding, 0),
+		BSSSymbols:    make([]SymbolBinding, 0),
+	}
+}
+
+func CopyProgramSymbols(src *ProgramSymbols) *ProgramSymbols {
+	if src == nil {
+		return nil
+	}
+	dst := &ProgramSymbols{
+		Symbols:       cloneBindingsMap(src.Symbols),
+		ExternSymbols: append([]SymbolBinding(nil), src.ExternSymbols...),
+		BSSSymbols:    append([]SymbolBinding(nil), src.BSSSymbols...),
+	}
+	return dst
+}
+
 type LinkedProgram struct {
 	Text          CodeMemory
 	EntryPoint    int
@@ -457,21 +477,19 @@ type LinkedProgram struct {
 	FrameByteSize int
 	BSSSize       int
 	BSSByteSize   int
-	DebugSymbols  *DebugSymbols
+	DebugSymbols  *ProgramSymbols
 }
 
 type RelocatableProgram struct {
-	Text          CodeMemory
-	Symbols       map[string]SymbolBinding
-	ExternSymbols []SymbolBinding
-	BSSSymbols    []SymbolBinding
-	Functions     []SymbolBinding
-	CallPatches   []CallPatch
-	EntryFunction int
-	FrameSize     int
-	FrameByteSize int
-	BSSSize       int
-	BSSByteSize   int
+	Text           CodeMemory
+	ProgramSymbols *ProgramSymbols
+	Functions      []SymbolBinding
+	CallPatches    []CallPatch
+	EntryFunction  int
+	FrameSize      int
+	FrameByteSize  int
+	BSSSize        int
+	BSSByteSize    int
 }
 
 func alignUp(offset int, alignment int) int {

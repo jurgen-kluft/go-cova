@@ -22,7 +22,7 @@ func (linker *Linker) Link(program *ProgramNode, compiled *RelocatableProgram) (
 		return nil, fmt.Errorf("link error: linker is nil")
 	}
 
-	for _, binding := range compiled.ExternSymbols {
+	for _, binding := range compiled.ProgramSymbols.ExternSymbols {
 		if binding.ByteOffset < 0 || binding.ByteOffset+binding.ByteSize > linker.VariableCapacity {
 			return nil, fmt.Errorf("link error: extern variable %q requests byte range [%d,%d), but extern memory capacity is %d", binding.Name, binding.ByteOffset, binding.ByteOffset+binding.ByteSize, linker.VariableCapacity)
 		}
@@ -66,11 +66,7 @@ func (linker *Linker) Link(program *ProgramNode, compiled *RelocatableProgram) (
 		FrameByteSize: compiled.FrameByteSize,
 		BSSSize:       compiled.BSSSize,
 		BSSByteSize:   compiled.BSSByteSize,
-		DebugSymbols: &DebugSymbols{
-			Symbols:       cloneBindingsMap(compiled.Symbols),
-			ExternSymbols: append([]SymbolBinding(nil), compiled.ExternSymbols...),
-			BSSSymbols:    append([]SymbolBinding(nil), compiled.BSSSymbols...),
-		},
+		DebugSymbols:  CopyProgramSymbols(compiled.ProgramSymbols),
 	}
 	return linked, nil
 }
