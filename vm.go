@@ -212,15 +212,21 @@ func (vm *VM) Run(program *LinkedProgram) error {
 	vm.callFrameTop = 0
 	vm.frameTop = 0
 
-	if program.EntryPoint < 0 || program.EntryPoint >= len(program.Text) {
+	if program.EntryPoint < 0 || program.EntryPoint >= len(program.Functions) {
 		return fmt.Errorf("vm error: entry point %d out of range", program.EntryPoint)
 	}
-	if err := vm.enterScriptFunction(program.EntryPoint, nil, -1); err != nil {
+	if program.Functions[program.EntryPoint].ParamCount != 0 {
+		return fmt.Errorf("vm error: entry function expects %d args", program.Functions[program.EntryPoint].ParamCount)
+	}
+	if err := vm.enterScriptFunction(program.EntryPoint, -1, false); err != nil {
 		return err
 	}
 
 	for vm.pc < len(program.Text) {
-		instruction := program.Text.ReadInstruction(&vm.pc)
+		instruction, err := program.Text.ReadInstructionChecked(&vm.pc)
+		if err != nil {
+			return err
+		}
 		op := instruction.Opcode()
 
 		switch op {
@@ -229,7 +235,11 @@ func (vm *VM) Run(program *LinkedProgram) error {
 			if kind == KindNone || kind == KindAddress {
 				return fmt.Errorf("vm error: unsupported push kind %d", kind)
 			}
-			if err := vm.pushKind(kind, program.Text.ReadImmediate(&vm.pc, kind)); err != nil {
+			immediate, err := program.Text.ReadImmediateChecked(&vm.pc, kind)
+			if err != nil {
+				return err
+			}
+			if err := vm.pushKind(kind, immediate); err != nil {
 				return err
 			}
 		case OpArithmetic:
@@ -258,7 +268,10 @@ func (vm *VM) Run(program *LinkedProgram) error {
 			}
 		case OpAddr:
 			segment := instruction.AddressSegment()
-			offset := program.Text.ReadInt(&vm.pc)
+			offset, err := program.Text.ReadIntChecked(&vm.pc)
+			if err != nil {
+				return err
+			}
 			if segment == segmentFrame {
 				frame, err := vm.currentFrame()
 				if err != nil {
@@ -325,22 +338,43 @@ func (vm *VM) Run(program *LinkedProgram) error {
 				return err
 			}
 		case OpJumpIfFalse:
-			target := program.Text.ReadInt(&vm.pc)
+			target, err := program.Text.ReadIntChecked(&vm.pc)
+			if err != nil {
+				return err
+			}
 			condition, err := vm.popInt32()
 			if err != nil {
 				return err
 			}
 			if condition == 0 {
+				if target < 0 || target >= len(program.Text) {
+					return fmt.Errorf("vm error: jump target %d out of range", target)
+				}
 				vm.pc = target
 			}
 		case OpJump:
-			vm.pc = program.Text.ReadInt(&vm.pc)
+			target, err := program.Text.ReadIntChecked(&vm.pc)
+			if err != nil {
+				return err
+			}
+			if target < 0 || target >= len(program.Text) {
+				return fmt.Errorf("vm error: jump target %d out of range", target)
+			}
+			vm.pc = target
 		case OpCall:
-			if err := vm.callScriptFunction(program.Text.ReadInt(&vm.pc)); err != nil {
+			target, err := program.Text.ReadIntChecked(&vm.pc)
+			if err != nil {
+				return err
+			}
+			if err := vm.callScriptFunction(target); err != nil {
 				return err
 			}
 		case OpCallExtern:
-			if err := vm.callExtern(program.Text.ReadInt(&vm.pc)); err != nil {
+			importID, err := program.Text.ReadIntChecked(&vm.pc)
+			if err != nil {
+				return err
+			}
+			if err := vm.callExtern(importID); err != nil {
 				return err
 			}
 		case OpRet:
@@ -366,53 +400,68 @@ func (vm *VM) currentFrame() (*callFrame, error) {
 	return &vm.callFrames[vm.callFrameTop-1], nil
 }
 
-func (vm *VM) enterScriptFunction(entryAddress int, args []uint64, returnPC int) error {
-	header, err := vm.program.Text.ReadFunctionHeader(entryAddress)
-	if err != nil {
-		return err
+func (vm *VM) enterScriptFunction(functionIndex int, returnPC int, popArgs bool) error {
+	if functionIndex < 0 || functionIndex >= len(vm.program.Functions) {
+		return fmt.Errorf("vm error: function index %d out of range", functionIndex)
 	}
-	if len(args) != header.ParamCount {
-		return fmt.Errorf("vm error: function at %d expects %d args, got %d", entryAddress, header.ParamCount, len(args))
+	function := vm.program.Functions[functionIndex]
+	if function.BodyAddress < 0 || function.BodyAddress >= len(vm.program.Text) {
+		return fmt.Errorf("vm error: function %d body address %d out of range", functionIndex, function.BodyAddress)
+	}
+	if function.ParamStart < 0 || function.ParamCount < 0 || function.ParamStart > len(vm.program.ParamKinds)-function.ParamCount || function.ParamStart > len(vm.program.ParamOffsets)-function.ParamCount {
+		return fmt.Errorf("vm error: function %d has invalid parameter metadata", functionIndex)
+	}
+	if function.FrameByteSize < 0 {
+		return fmt.Errorf("vm error: function %d has invalid frame byte size %d", functionIndex, function.FrameByteSize)
+	}
+	argumentBytes := 0
+	for index := 0; index < function.ParamCount; index++ {
+		kind := vm.program.ParamKinds[function.ParamStart+index]
+		size := kind.Size()
+		if size == 0 {
+			return fmt.Errorf("vm error: function %d parameter %d has invalid kind %d", functionIndex, index, kind)
+		}
+		offset := vm.program.ParamOffsets[function.ParamStart+index]
+		if offset < 0 || offset > function.FrameByteSize-size {
+			return fmt.Errorf("vm error: function %d parameter %d offset %d out of range", functionIndex, index, offset)
+		}
+		argumentBytes += size
+	}
+	if popArgs && argumentBytes > len(vm.memory.segment[segmentStack]) {
+		return fmt.Errorf("vm error: stack underflow")
 	}
 	localBase := vm.frameTop
-	if localBase+header.FrameByteSize > len(vm.memory.segment[segmentFrame]) {
-		return fmt.Errorf("vm error: frame capacity exceeded: need %d bytes, have %d", localBase+header.FrameByteSize, len(vm.memory.segment[segmentFrame]))
+	if localBase+function.FrameByteSize > len(vm.memory.segment[segmentFrame]) {
+		return fmt.Errorf("vm error: frame capacity exceeded: need %d bytes, have %d", localBase+function.FrameByteSize, len(vm.memory.segment[segmentFrame]))
 	}
-	for offset := localBase; offset < localBase+header.FrameByteSize; offset++ {
-		vm.memory.segment[segmentFrame][offset] = 0
-	}
-	for index, value := range args {
-		if index >= len(header.ParamOffsets) {
-			return fmt.Errorf("vm error: function at %d missing byte offset for arg %d", entryAddress, index)
-		}
-		kind := KindInt32
-		if index < len(header.ParamKinds) && header.ParamKinds[index] != KindNone {
-			kind = header.ParamKinds[index]
-		}
-		if err := vm.memory.WriteBits(makeAddress(segmentFrame, localBase+header.ParamOffsets[index]), kind, value); err != nil {
-			return err
-		}
-	}
-	vm.frameTop = localBase + header.FrameByteSize
 	if vm.callFrameTop >= len(vm.callFrames) {
 		return fmt.Errorf("vm error: call frame capacity exceeded: need %d frames, have %d", vm.callFrameTop+1, len(vm.callFrames))
 	}
-	vm.callFrames[vm.callFrameTop] = callFrame{returnPC: returnPC, localBase: localBase, returnKind: header.ReturnKind}
+	for offset := localBase; offset < localBase+function.FrameByteSize; offset++ {
+		vm.memory.segment[segmentFrame][offset] = 0
+	}
+	if popArgs {
+		for index := function.ParamCount - 1; index >= 0; index-- {
+			paramIndex := function.ParamStart + index
+			kind := vm.program.ParamKinds[paramIndex]
+			value, err := vm.popKind(kind)
+			if err != nil {
+				return err
+			}
+			if err := vm.memory.WriteBits(makeAddress(segmentFrame, localBase+vm.program.ParamOffsets[paramIndex]), kind, value); err != nil {
+				return err
+			}
+		}
+	}
+	vm.frameTop = localBase + function.FrameByteSize
+	vm.callFrames[vm.callFrameTop] = callFrame{returnPC: returnPC, localBase: localBase, returnKind: function.ReturnKind}
 	vm.callFrameTop++
-	vm.pc = header.BodyAddress
+	vm.pc = function.BodyAddress
 	return nil
 }
 
-func (vm *VM) callScriptFunction(entryAddress int) error {
-	header, err := vm.program.Text.ReadFunctionHeader(entryAddress)
-	if err != nil {
-		return err
-	}
-	args, err := vm.popArgBits(header.ParamKinds)
-	if err != nil {
-		return err
-	}
-	return vm.enterScriptFunction(entryAddress, args, vm.pc)
+func (vm *VM) callScriptFunction(functionIndex int) error {
+	return vm.enterScriptFunction(functionIndex, vm.pc, true)
 }
 
 func (vm *VM) callExtern(importID int) error {
@@ -420,22 +469,6 @@ func (vm *VM) callExtern(importID int) error {
 		return fmt.Errorf("vm error: no extern dispatcher registered for import %d", importID)
 	}
 	return vm.externDispatcher(vm, importID)
-}
-
-func (vm *VM) popArgBits(kinds []ValueKind) ([]uint64, error) {
-	args := make([]uint64, len(kinds))
-	for index := len(kinds) - 1; index >= 0; index-- {
-		kind := kinds[index]
-		if kind == KindNone {
-			kind = KindInt32
-		}
-		bits, err := vm.popKind(kind)
-		if err != nil {
-			return nil, err
-		}
-		args[index] = bits
-	}
-	return args, nil
 }
 
 func (vm *VM) returnFromFunction() (bool, error) {

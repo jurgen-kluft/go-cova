@@ -443,14 +443,6 @@ func (compiler *Compiler) compileFunction(function *FunctionNode) {
 	compiler.currentFrameByteSize = frameByteSize
 	binding.ScriptAddress = len(compiler.code)
 	compiler.storeFunctionBinding(binding)
-	headerPos := compiler.code.AppendFunctionHeader(ScriptFunctionHeader{
-		ParamCount:    binding.ParamCount,
-		ParamKinds:    valueKindsFromTypes(binding.ParamTypes),
-		ParamOffsets:  binding.ParamOffsets,
-		FrameByteSize: binding.FrameByteSize,
-		ReturnKind:    valueKindFromType(binding.Type),
-	})
-
 	compiler.compileBlock(function.Body)
 	if compiler.err != nil {
 		return
@@ -461,7 +453,6 @@ func (compiler *Compiler) compileFunction(function *FunctionNode) {
 	binding.FrameSlotCount = compiler.localSlotCount
 	binding.FrameByteSize = compiler.currentFrameByteSize
 	compiler.storeFunctionBinding(binding)
-	compiler.code.PatchInt(headerPos+6, compiler.currentFrameByteSize)
 	if compiler.localSlotCount > compiler.maxLocalSlots {
 		compiler.maxLocalSlots = compiler.localSlotCount
 	}

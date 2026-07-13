@@ -101,6 +101,16 @@ func (code CodeMemory) ReadInstruction(ip *int) Instruction {
 	return instruction
 }
 
+func (code CodeMemory) ReadInstructionChecked(ip *int) (Instruction, error) {
+	if ip == nil {
+		return 0, fmt.Errorf("vm error: instruction pointer is nil")
+	}
+	if *ip < 0 || *ip > len(code)-2 {
+		return 0, fmt.Errorf("vm error: truncated instruction at ip %d", *ip)
+	}
+	return code.ReadInstruction(ip), nil
+}
+
 func (code *CodeMemory) AppendImmediate(kind ValueKind, value uint64) {
 	start := len(*code)
 	size := kind.Size()
@@ -146,6 +156,20 @@ func (code CodeMemory) ReadImmediate(ip *int, kind ValueKind) (value uint64) {
 	return
 }
 
+func (code CodeMemory) ReadImmediateChecked(ip *int, kind ValueKind) (uint64, error) {
+	if ip == nil {
+		return 0, fmt.Errorf("vm error: instruction pointer is nil")
+	}
+	size := kind.Size()
+	if size == 0 {
+		return 0, fmt.Errorf("vm error: unsupported immediate kind %d at ip %d", kind, *ip)
+	}
+	if *ip < 0 || *ip > len(code)-size {
+		return 0, fmt.Errorf("vm error: truncated %d-byte immediate at ip %d", size, *ip)
+	}
+	return code.ReadImmediate(ip, kind), nil
+}
+
 func (code *CodeMemory) AppendInt(value int) {
 	start := len(*code)
 	*code = append(*code, 0, 0, 0, 0)
@@ -162,51 +186,13 @@ func (code CodeMemory) ReadInt(ip *int) int {
 	return value
 }
 
-func (code *CodeMemory) AppendFunctionHeader(header ScriptFunctionHeader) int {
-	start := len(*code)
-	code.AppendImmediate(KindUint8, uint64(scriptFunctionHeaderMagic))
-	code.AppendImmediate(KindUint8, uint64(header.ReturnKind))
-	code.AppendInt(header.ParamCount)
-	code.AppendInt(header.FrameByteSize)
-	for index := 0; index < header.ParamCount; index++ {
-		kind := KindNone
-		if index < len(header.ParamKinds) {
-			kind = header.ParamKinds[index]
-		}
-		code.AppendImmediate(KindUint8, uint64(kind))
-		offset := 0
-		if index < len(header.ParamOffsets) {
-			offset = header.ParamOffsets[index]
-		}
-		code.AppendInt(offset)
+func (code CodeMemory) ReadIntChecked(ip *int) (int, error) {
+	if ip == nil {
+		return 0, fmt.Errorf("vm error: instruction pointer is nil")
 	}
-	return start
+	if *ip < 0 || *ip > len(code)-4 {
+		return 0, fmt.Errorf("vm error: truncated 4-byte operand at ip %d", *ip)
+	}
+	return code.ReadInt(ip), nil
 }
 
-func (code CodeMemory) ReadFunctionHeader(address int) (ScriptFunctionHeader, error) {
-	ip := address
-	if ip < 0 || ip >= len(code) {
-		return ScriptFunctionHeader{}, fmt.Errorf("vm error: function header address %d out of range", address)
-	}
-	if got := byte(code.ReadImmediate(&ip, KindUint8)); got != scriptFunctionHeaderMagic {
-		return ScriptFunctionHeader{}, fmt.Errorf("vm error: invalid function header magic 0x%x at %d", got, address)
-	}
-	header := ScriptFunctionHeader{
-		ReturnKind:    ValueKind(code.ReadImmediate(&ip, KindUint8)),
-		ParamCount:    code.ReadInt(&ip),
-		FrameByteSize: code.ReadInt(&ip),
-	}
-	if header.ParamCount < 0 {
-		return ScriptFunctionHeader{}, fmt.Errorf("vm error: invalid param count %d at %d", header.ParamCount, address)
-	}
-	if header.ParamCount > 0 {
-		header.ParamKinds = make([]ValueKind, header.ParamCount)
-		header.ParamOffsets = make([]int, header.ParamCount)
-		for index := 0; index < header.ParamCount; index++ {
-			header.ParamKinds[index] = ValueKind(code.ReadImmediate(&ip, KindUint8))
-			header.ParamOffsets[index] = code.ReadInt(&ip)
-		}
-	}
-	header.BodyAddress = ip
-	return header, nil
-}

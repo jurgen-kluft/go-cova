@@ -32,11 +32,10 @@ void script_main() {
 	if len(code) < 14 {
 		t.Fatalf("expected compiled code, got %d bytes", len(code))
 	}
-	header, err := code.ReadFunctionHeader(linked.EntryPoint)
-	if err != nil {
-		t.Fatalf("ReadFunctionHeader failed: %v", err)
+	if linked.EntryPoint < 0 || linked.EntryPoint >= len(linked.Functions) {
+		t.Fatalf("entry point %d out of range", linked.EntryPoint)
 	}
-	ip := header.BodyAddress
+	ip := linked.Functions[linked.EntryPoint].BodyAddress
 	if op := code.ReadInstruction(&ip).Opcode(); op != OpPush {
 		t.Fatalf("expected OpPush at function body start, got %d", op)
 	}
@@ -734,14 +733,17 @@ func TestVMTypedStackHelpersPreserveBits(t *testing.T) {
 
 func TestRunSupportsFloat64Arithmetic(t *testing.T) {
 	var code CodeMemory
-	entryPoint := code.AppendFunctionHeader(ScriptFunctionHeader{ReturnKind: KindFloat64})
 	code.AppendInstruction(makeInstruction(OpPush, KindFloat64, ModeNone, FlagNone))
 	code.AppendImmediate(KindFloat64, math.Float64bits(1.5))
 	code.AppendInstruction(makeInstruction(OpPush, KindFloat64, ModeNone, FlagNone))
 	code.AppendImmediate(KindFloat64, math.Float64bits(2.25))
 	code.AppendInstruction(makeArithmeticInstruction(KindFloat64, ArithmeticAdd))
 	code.AppendInstruction(makeInstruction(OpRet, KindNone, ModeNone, FlagNone))
-	program := &LinkedProgram{Text: code, EntryPoint: entryPoint}
+	program := &LinkedProgram{
+		Text:       code,
+		EntryPoint: 0,
+		Functions:  []ScriptFunctionDescriptor{{BodyAddress: 0, ReturnKind: KindFloat64}},
+	}
 
 	vm := NewVM(8)
 	if err := vm.Run(program); err != nil {
@@ -865,6 +867,60 @@ int64 script_main() {
 	}
 }
 
+func TestLinkedProgramUsesFlatFunctionMetadata(t *testing.T) {
+	script := `
+int add(int left, int right) {
+	return left + right;
+}
+
+int script_main() {
+	return add(2, 3);
+}
+`
+
+	linked := mustLinkProgram(t, script, 0, 0)
+	if len(linked.Functions) != 2 {
+		t.Fatalf("expected two function descriptors, got %d", len(linked.Functions))
+	}
+	if len(linked.ParamKinds) != 2 || len(linked.ParamOffsets) != 2 {
+		t.Fatalf("expected two flat parameters, got %d kinds and %d offsets", len(linked.ParamKinds), len(linked.ParamOffsets))
+	}
+	if linked.EntryPoint < 0 || linked.EntryPoint >= len(linked.Functions) {
+		t.Fatalf("entry point %d out of range", linked.EntryPoint)
+	}
+	for index, function := range linked.Functions {
+		if function.BodyAddress < 0 || function.BodyAddress >= len(linked.Text) {
+			t.Fatalf("function %d body address %d out of range", index, function.BodyAddress)
+		}
+	}
+}
+
+func TestRunNestedCallsAllocatesZeroAfterLoad(t *testing.T) {
+	script := `
+int add(int left, int right) {
+	return left + right;
+}
+
+int script_main() {
+	return add(2, 3);
+}
+`
+
+	linked := mustLinkProgram(t, script, 0, 0)
+	vm := NewVM(testFrameCapacityBytes)
+	if err := vm.Run(linked); err != nil {
+		t.Fatalf("warm-up Run failed: %v", err)
+	}
+	allocations := testing.AllocsPerRun(100, func() {
+		if err := vm.Run(linked); err != nil {
+			panic(err)
+		}
+	})
+	if allocations != 0 {
+		t.Fatalf("expected zero allocations per prepared run, got %v", allocations)
+	}
+}
+
 func TestCompileRejectsRecursiveScriptCallCycle(t *testing.T) {
 	script := `
 int recurse(int value) {
@@ -915,18 +971,25 @@ int64 script_main() {
 
 func TestRunPreservesNestedUint64ReturnBits(t *testing.T) {
 	var code CodeMemory
-	entryPoint := code.AppendFunctionHeader(ScriptFunctionHeader{ReturnKind: KindUint64})
+	entryAddress := len(code)
 	code.AppendInstruction(makeInstruction(OpCall, KindNone, ModeNone, FlagNone))
 	callOperandPos := len(code)
-	code.AppendInt(0)
+	code.AppendInt(1)
 	code.AppendInstruction(makeInstruction(OpRet, KindNone, ModeNone, FlagNone))
-	helperAddress := code.AppendFunctionHeader(ScriptFunctionHeader{ReturnKind: KindUint64})
+	helperAddress := len(code)
 	code.AppendInstruction(makeInstruction(OpPush, KindUint64, ModeNone, FlagNone))
 	code.AppendImmediate(KindUint64, uint64(1)<<63)
 	code.AppendInstruction(makeInstruction(OpRet, KindNone, ModeNone, FlagNone))
-	code.PatchInt(callOperandPos, helperAddress)
+	code.PatchInt(callOperandPos, 1)
 
-	program := &LinkedProgram{Text: code, EntryPoint: entryPoint}
+	program := &LinkedProgram{
+		Text:       code,
+		EntryPoint: 0,
+		Functions: []ScriptFunctionDescriptor{
+			{BodyAddress: entryAddress, ReturnKind: KindUint64},
+			{BodyAddress: helperAddress, ReturnKind: KindUint64},
+		},
+	}
 
 	vm := NewVM(8)
 	if err := vm.Run(program); err != nil {
@@ -939,11 +1002,14 @@ func TestRunPreservesNestedUint64ReturnBits(t *testing.T) {
 
 func TestOpCallErrorsOnOutOfRangeCodeAddress(t *testing.T) {
 	var code CodeMemory
-	entryPoint := code.AppendFunctionHeader(ScriptFunctionHeader{})
 	code.AppendInstruction(makeInstruction(OpCall, KindNone, ModeNone, FlagNone))
 	code.AppendInt(99)
 	code.AppendInstruction(makeInstruction(OpRet, KindNone, ModeNone, FlagNone))
-	program := &LinkedProgram{Text: code, EntryPoint: entryPoint}
+	program := &LinkedProgram{
+		Text:       code,
+		EntryPoint: 0,
+		Functions:  []ScriptFunctionDescriptor{{BodyAddress: 0}},
+	}
 	vm := NewVM(8)
 	if err := vm.Run(program); err == nil {
 		t.Fatal("expected error for out-of-range code address")

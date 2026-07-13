@@ -281,6 +281,9 @@ var valueKindSize = [KindCount]int{
 }
 
 func (kind ValueKind) Size() int {
+	if kind >= KindCount {
+		return 0
+	}
 	size := valueKindSize[kind]
 	return size
 }
@@ -329,13 +332,10 @@ type CallPatch struct {
 	Line       int
 }
 
-const scriptFunctionHeaderMagic byte = 0xf1
-
-type ScriptFunctionHeader struct {
+type ScriptFunctionDescriptor struct {
 	BodyAddress   int
+	ParamStart    int
 	ParamCount    int
-	ParamKinds    []ValueKind
-	ParamOffsets  []int
 	FrameByteSize int
 	ReturnKind    ValueKind
 }
@@ -375,6 +375,9 @@ func CopyProgramSymbols(src *ProgramSymbols) *ProgramSymbols {
 type LinkedProgram struct {
 	Text          CodeMemory
 	EntryPoint    int
+	Functions     []ScriptFunctionDescriptor
+	ParamKinds    []ValueKind
+	ParamOffsets  []int
 	FrameSize     int
 	FrameByteSize int
 	ConstByteSize int

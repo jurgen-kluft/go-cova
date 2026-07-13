@@ -31,7 +31,10 @@ func (linker *Linker) Link(program *ProgramNode, compiled *RelocatableProgram) (
 		}
 	}
 
-	tempToAddress := make(map[int]int, len(compiled.Functions))
+	tempToFunction := make(map[int]int, len(compiled.Functions))
+	functions := make([]ScriptFunctionDescriptor, 0, len(compiled.Functions))
+	paramKinds := make([]ValueKind, 0)
+	paramOffsets := make([]int, 0)
 	for _, binding := range compiled.Functions {
 		switch binding.Scope {
 		case ScopeExtern:
@@ -39,7 +42,26 @@ func (linker *Linker) Link(program *ProgramNode, compiled *RelocatableProgram) (
 				return nil, fmt.Errorf("link error: host-linked function %q requests slot %d, but function capacity is %d", binding.Name, binding.SlotIndex, linker.FunctionCapacity)
 			}
 		case ScopeBSS:
-			tempToAddress[binding.TempFuncID] = binding.ScriptAddress
+			if binding.ParamCount != len(binding.ParamTypes) || binding.ParamCount != len(binding.ParamOffsets) {
+				return nil, fmt.Errorf("link error: function %q has inconsistent parameter metadata", binding.Name)
+			}
+			paramStart := len(paramKinds)
+			for index, typ := range binding.ParamTypes {
+				kind := valueKindFromType(typ)
+				if kind == KindNone || kind == KindVoid {
+					return nil, fmt.Errorf("link error: function %q parameter %d has unsupported kind %d", binding.Name, index, kind)
+				}
+				paramKinds = append(paramKinds, kind)
+				paramOffsets = append(paramOffsets, binding.ParamOffsets[index])
+			}
+			tempToFunction[binding.TempFuncID] = len(functions)
+			functions = append(functions, ScriptFunctionDescriptor{
+				BodyAddress:   binding.ScriptAddress,
+				ParamStart:    paramStart,
+				ParamCount:    binding.ParamCount,
+				FrameByteSize: binding.FrameByteSize,
+				ReturnKind:    valueKindFromType(binding.Type),
+			})
 		default:
 			return nil, fmt.Errorf("link error: function %q has invalid scope %d", binding.Name, binding.Scope)
 		}
@@ -47,14 +69,14 @@ func (linker *Linker) Link(program *ProgramNode, compiled *RelocatableProgram) (
 
 	linkedText := compiled.Text.Clone()
 	for _, patch := range compiled.CallPatches {
-		address, ok := tempToAddress[patch.TempFuncID]
+		functionIndex, ok := tempToFunction[patch.TempFuncID]
 		if !ok {
 			return nil, fmt.Errorf("link error on line %d: unresolved function id %d", patch.Line, patch.TempFuncID)
 		}
-		linkedText.PatchInt(patch.OperandPos, address)
+		linkedText.PatchInt(patch.OperandPos, functionIndex)
 	}
 
-	entryPoint, ok := tempToAddress[compiled.EntryFunction]
+	entryPoint, ok := tempToFunction[compiled.EntryFunction]
 	if !ok {
 		return nil, fmt.Errorf("link error: entry function id %d was not finalized", compiled.EntryFunction)
 	}
@@ -62,6 +84,9 @@ func (linker *Linker) Link(program *ProgramNode, compiled *RelocatableProgram) (
 	linked := &LinkedProgram{
 		Text:          linkedText,
 		EntryPoint:    entryPoint,
+		Functions:     functions,
+		ParamKinds:    paramKinds,
+		ParamOffsets:  paramOffsets,
 		FrameSize:     compiled.FrameSize,
 		FrameByteSize: compiled.FrameByteSize,
 		ConstByteSize: compiled.ConstByteSize,
