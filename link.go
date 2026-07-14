@@ -11,7 +11,7 @@ func NewLinker(variableCapacity, functionCapacity int) *Linker {
 	return &Linker{VariableCapacity: variableCapacity, FunctionCapacity: functionCapacity}
 }
 
-func (linker *Linker) Link(program *ProgramNode, compiled *RelocatableProgram) (*LinkedProgram, error) {
+func (linker *Linker) Link(program *AstProgramNode, compiled *RelocatableProgram) (*LinkedProgram, error) {
 	if program == nil {
 		return nil, fmt.Errorf("link error: program is nil")
 	}

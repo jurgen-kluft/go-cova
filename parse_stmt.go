@@ -2,13 +2,13 @@ package cova
 
 import "fmt"
 
-func (core *parserCore) parseBlock() (*BlockStmt, error) {
+func (core *parserCore) parseBlock() (*AstBlockStmt, error) {
 	line := core.peek().Line
 	if _, err := core.expectDelimiter("{"); err != nil {
 		return nil, err
 	}
 
-	block := &BlockStmt{Line: line}
+	block := &AstBlockStmt{Line: line}
 	for !(core.peek().Kind == TokDelimiter && core.peek().Value == "}") {
 		if core.isEOF() {
 			return nil, core.errorf(core.peek(), "expected closing brace")
@@ -26,7 +26,7 @@ func (core *parserCore) parseBlock() (*BlockStmt, error) {
 	return block, nil
 }
 
-func (core *parserCore) parseStatement() (StmtNode, error) {
+func (core *parserCore) parseStatement() (AstStmtNode, error) {
 	token := core.peek()
 	if token.Kind == TokDelimiter && token.Value == "{" {
 		return core.parseBlock()
@@ -54,14 +54,14 @@ func (core *parserCore) parseStatement() (StmtNode, error) {
 		if _, err := core.expectDelimiter(";"); err != nil {
 			return nil, err
 		}
-		return &BreakStmt{Line: token.Line}, nil
+		return &AstBreakStmt{Line: token.Line}, nil
 	}
 	if token.Kind == TokKeyword && token.Value == "continue" {
 		core.pos++
 		if _, err := core.expectDelimiter(";"); err != nil {
 			return nil, err
 		}
-		return &ContinueStmt{Line: token.Line}, nil
+		return &AstContinueStmt{Line: token.Line}, nil
 	}
 
 	line := token.Line
@@ -70,7 +70,7 @@ func (core *parserCore) parseStatement() (StmtNode, error) {
 		return nil, err
 	}
 	if core.matchOperator("=") {
-		target, ok := expr.(LvalueNode)
+		target, ok := expr.(AstLvalueNode)
 		if !ok {
 			return nil, core.errorf(token, "assignment target is not assignable")
 		}
@@ -81,15 +81,15 @@ func (core *parserCore) parseStatement() (StmtNode, error) {
 		if _, err := core.expectDelimiter(";"); err != nil {
 			return nil, err
 		}
-		return &AssignStmt{Target: target, Value: value, Line: line}, nil
+		return &AstAssignStmt{Target: target, Value: value, Line: line}, nil
 	}
 	if _, err := core.expectDelimiter(";"); err != nil {
 		return nil, err
 	}
-	return &ExprStmt{Expr: expr, Line: line}, nil
+	return &AstExprStmt{Expr: expr, Line: line}, nil
 }
 
-func (core *parserCore) parseLocalDeclStmt() (StmtNode, error) {
+func (core *parserCore) parseLocalDeclStmt() (AstStmtNode, error) {
 	line := core.peek().Line
 	typ, err := core.parseType()
 	if err != nil {
@@ -102,7 +102,7 @@ func (core *parserCore) parseLocalDeclStmt() (StmtNode, error) {
 	if typ.Kind == TypeVoid {
 		return nil, fmt.Errorf("syntax error on line %d: local variable %q cannot have type void", line, nameToken.Value)
 	}
-	var initializer ExprNode
+	var initializer AstExprNode
 	if core.matchOperator("=") {
 		initializer, err = core.parseExpression()
 		if err != nil {
@@ -112,10 +112,10 @@ func (core *parserCore) parseLocalDeclStmt() (StmtNode, error) {
 	if _, err := core.expectDelimiter(";"); err != nil {
 		return nil, err
 	}
-	return &LocalDeclStmt{Type: typ, Name: nameToken.Value, Initializer: initializer, Line: line}, nil
+	return &AstLocalDeclStmt{Type: typ, Name: nameToken.Value, Initializer: initializer, Line: line}, nil
 }
 
-func (core *parserCore) parseIfStmt() (StmtNode, error) {
+func (core *parserCore) parseIfStmt() (AstStmtNode, error) {
 	line := core.peek().Line
 	if _, err := core.expectKeyword("if"); err != nil {
 		return nil, err
@@ -134,7 +134,7 @@ func (core *parserCore) parseIfStmt() (StmtNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	var elseStmt StmtNode
+	var elseStmt AstStmtNode
 	if core.peek().Kind == TokKeyword && core.peek().Value == "else" {
 		core.pos++
 		elseStmt, err = core.parseStatement()
@@ -142,10 +142,10 @@ func (core *parserCore) parseIfStmt() (StmtNode, error) {
 			return nil, err
 		}
 	}
-	return &IfStmt{Condition: condition, Then: thenStmt, Else: elseStmt, Line: line}, nil
+	return &AstIfStmt{Condition: condition, Then: thenStmt, Else: elseStmt, Line: line}, nil
 }
 
-func (core *parserCore) parseWhileStmt() (StmtNode, error) {
+func (core *parserCore) parseWhileStmt() (AstStmtNode, error) {
 	line := core.peek().Line
 	if _, err := core.expectKeyword("while"); err != nil {
 		return nil, err
@@ -164,10 +164,10 @@ func (core *parserCore) parseWhileStmt() (StmtNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &WhileStmt{Condition: condition, Body: body, Line: line}, nil
+	return &AstWhileStmt{Condition: condition, Body: body, Line: line}, nil
 }
 
-func (core *parserCore) parseForStmt() (StmtNode, error) {
+func (core *parserCore) parseForStmt() (AstStmtNode, error) {
 	line := core.peek().Line
 	if _, err := core.expectKeyword("for"); err != nil {
 		return nil, err
@@ -175,7 +175,7 @@ func (core *parserCore) parseForStmt() (StmtNode, error) {
 	if _, err := core.expectDelimiter("("); err != nil {
 		return nil, err
 	}
-	var init StmtNode
+	var init AstStmtNode
 	if !(core.peek().Kind == TokDelimiter && core.peek().Value == ";") {
 		stmt, err := core.parseForClauseStatement()
 		if err != nil {
@@ -186,7 +186,7 @@ func (core *parserCore) parseForStmt() (StmtNode, error) {
 	if _, err := core.expectDelimiter(";"); err != nil {
 		return nil, err
 	}
-	var condition ExprNode
+	var condition AstExprNode
 	if !(core.peek().Kind == TokDelimiter && core.peek().Value == ";") {
 		expr, err := core.parseExpression()
 		if err != nil {
@@ -197,7 +197,7 @@ func (core *parserCore) parseForStmt() (StmtNode, error) {
 	if _, err := core.expectDelimiter(";"); err != nil {
 		return nil, err
 	}
-	var post StmtNode
+	var post AstStmtNode
 	if !(core.peek().Kind == TokDelimiter && core.peek().Value == ")") {
 		stmt, err := core.parseForClauseStatement()
 		if err != nil {
@@ -212,10 +212,10 @@ func (core *parserCore) parseForStmt() (StmtNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ForStmt{Init: init, Condition: condition, Post: post, Body: body, Line: line}, nil
+	return &AstForStmt{Init: init, Condition: condition, Post: post, Body: body, Line: line}, nil
 }
 
-func (core *parserCore) parseSwitchStmt() (StmtNode, error) {
+func (core *parserCore) parseSwitchStmt() (AstStmtNode, error) {
 	line := core.peek().Line
 	if _, err := core.expectKeyword("switch"); err != nil {
 		return nil, err
@@ -233,7 +233,7 @@ func (core *parserCore) parseSwitchStmt() (StmtNode, error) {
 	if _, err := core.expectDelimiter("{"); err != nil {
 		return nil, err
 	}
-	stmt := &SwitchStmt{Value: value, Line: line}
+	stmt := &AstSwitchStmt{Value: value, Line: line}
 	for !(core.peek().Kind == TokDelimiter && core.peek().Value == "}") {
 		if core.isEOF() {
 			return nil, core.errorf(core.peek(), "expected closing brace")
@@ -252,7 +252,7 @@ func (core *parserCore) parseSwitchStmt() (StmtNode, error) {
 			if err != nil {
 				return nil, err
 			}
-			stmt.Cases = append(stmt.Cases, SwitchCase{Value: caseValue, Body: caseBody, Line: keyword.Line})
+			stmt.Cases = append(stmt.Cases, AstSwitchCase{Value: caseValue, Body: caseBody, Line: keyword.Line})
 			continue
 		}
 		if keyword.Kind == TokKeyword && keyword.Value == "default" {
@@ -275,8 +275,8 @@ func (core *parserCore) parseSwitchStmt() (StmtNode, error) {
 	return stmt, nil
 }
 
-func (core *parserCore) parseSwitchClauseBody() ([]StmtNode, error) {
-	body := make([]StmtNode, 0, 4)
+func (core *parserCore) parseSwitchClauseBody() ([]AstStmtNode, error) {
+	body := make([]AstStmtNode, 0, 4)
 	for {
 		token := core.peek()
 		if token.Kind == TokDelimiter && token.Value == "}" {
@@ -294,7 +294,7 @@ func (core *parserCore) parseSwitchClauseBody() ([]StmtNode, error) {
 	return body, nil
 }
 
-func (core *parserCore) parseForClauseStatement() (StmtNode, error) {
+func (core *parserCore) parseForClauseStatement() (AstStmtNode, error) {
 	token := core.peek()
 	line := token.Line
 	expr, err := core.parseExpression()
@@ -302,7 +302,7 @@ func (core *parserCore) parseForClauseStatement() (StmtNode, error) {
 		return nil, err
 	}
 	if core.matchOperator("=") {
-		target, ok := expr.(LvalueNode)
+		target, ok := expr.(AstLvalueNode)
 		if !ok {
 			return nil, core.errorf(token, "assignment target is not assignable")
 		}
@@ -310,18 +310,18 @@ func (core *parserCore) parseForClauseStatement() (StmtNode, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &AssignStmt{Target: target, Value: value, Line: line}, nil
+		return &AstAssignStmt{Target: target, Value: value, Line: line}, nil
 	}
-	return &ExprStmt{Expr: expr, Line: line}, nil
+	return &AstExprStmt{Expr: expr, Line: line}, nil
 }
 
-func (core *parserCore) parseReturnStmt() (StmtNode, error) {
+func (core *parserCore) parseReturnStmt() (AstStmtNode, error) {
 	line := core.peek().Line
 	if _, err := core.expectKeyword("return"); err != nil {
 		return nil, err
 	}
 	if core.matchDelimiter(";") {
-		return &ReturnStmt{Line: line}, nil
+		return &AstReturnStmt{Line: line}, nil
 	}
 	value, err := core.parseExpression()
 	if err != nil {
@@ -330,5 +330,5 @@ func (core *parserCore) parseReturnStmt() (StmtNode, error) {
 	if _, err := core.expectDelimiter(";"); err != nil {
 		return nil, err
 	}
-	return &ReturnStmt{Value: value, Line: line}, nil
+	return &AstReturnStmt{Value: value, Line: line}, nil
 }

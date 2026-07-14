@@ -16,8 +16,8 @@ void script_main() {
 	if err := Optimize(program); err != nil {
 		t.Fatalf("Optimize failed: %v", err)
 	}
-	assignment := program.Functions[0].Body.Statements[0].(*AssignStmt)
-	literal, ok := assignment.Value.(*NumberLiteral)
+	assignment := program.Functions[0].Body.Statements[0].(*AstAssignStmt)
+	literal, ok := assignment.Value.(*AstNumberLiteral)
 	if !ok {
 		t.Fatalf("expected folded number literal, got %T", assignment.Value)
 	}
@@ -35,8 +35,8 @@ void script_main() {
 	if err := Optimize(program); err != nil {
 		t.Fatalf("Optimize failed: %v", err)
 	}
-	declaration := program.Functions[0].Body.Statements[0].(*LocalDeclStmt)
-	literal, ok := declaration.Initializer.(*NumberLiteral)
+	declaration := program.Functions[0].Body.Statements[0].(*AstLocalDeclStmt)
+	literal, ok := declaration.Initializer.(*AstNumberLiteral)
 	if !ok || literal.IntValue != 1 {
 		t.Fatalf("expected folded true literal, got %#v", declaration.Initializer)
 	}
@@ -76,35 +76,35 @@ void script_main() {
 	if err := Optimize(program); err != nil {
 		t.Fatalf("Optimize failed: %v", err)
 	}
-	global, ok := program.Decls[0].Initializer.(*NumberLiteral)
+	global, ok := program.Decls[0].Initializer.(*AstNumberLiteral)
 	if !ok || global.IntValue != 14 {
 		t.Fatalf("expected folded global initializer 14, got %#v", program.Decls[0].Initializer)
 	}
 	if _, err := NewCompiler().Compile(program); err != nil {
 		t.Fatalf("Compile failed after folding global initializer: %v", err)
 	}
-	call := program.Functions[0].Body.Statements[0].(*ExprStmt).Expr.(*CallExpr)
-	argument, ok := call.Args[0].(*NumberLiteral)
+	call := program.Functions[0].Body.Statements[0].(*AstExprStmt).Expr.(*AstCallExpr)
+	argument, ok := call.Args[0].(*AstNumberLiteral)
 	if !ok || !argument.IsFloat || argument.FloatType != Float32Type || argument.FloatValue != 3.75 {
 		t.Fatalf("expected folded float32 call argument, got %#v", call.Args[0])
 	}
 }
 
 func TestOptimizePreservesFloatComparisonSemantics(t *testing.T) {
-	nan := &NumberLiteral{FloatValue: math.NaN(), IsFloat: true, FloatType: Float64Type, Line: 1}
-	program := &ProgramNode{Functions: []*FunctionNode{{
+	nan := &AstNumberLiteral{FloatValue: math.NaN(), IsFloat: true, FloatType: Float64Type, Line: 1}
+	program := &AstProgramNode{Functions: []*AstFunctionNode{{
 		Name:       "script_main",
 		ReturnType: VoidType,
-		Body: &BlockStmt{Statements: []StmtNode{&LocalDeclStmt{
+		Body: &AstBlockStmt{Statements: []AstStmtNode{&AstLocalDeclStmt{
 			Name:        "result",
 			Type:        Int32Type,
-			Initializer: &BinaryExpr{Op: "!=", Left: nan, Right: nan, Line: 1},
+			Initializer: &AstBinaryExpr{Op: "!=", Left: nan, Right: nan, Line: 1},
 		}}},
 	}}}
 	if err := Optimize(program); err != nil {
 		t.Fatalf("Optimize failed: %v", err)
 	}
-	literal := program.Functions[0].Body.Statements[0].(*LocalDeclStmt).Initializer.(*NumberLiteral)
+	literal := program.Functions[0].Body.Statements[0].(*AstLocalDeclStmt).Initializer.(*AstNumberLiteral)
 	if literal.IntValue != 1 {
 		t.Fatalf("expected NaN != NaN to fold true, got %d", literal.IntValue)
 	}
@@ -160,7 +160,7 @@ func runOptimizerTestProgram(t *testing.T, source string, optimize bool) int32 {
 	return result
 }
 
-func parseOptimizerTestProgram(t *testing.T, source string) *ProgramNode {
+func parseOptimizerTestProgram(t *testing.T, source string) *AstProgramNode {
 	t.Helper()
 	tokens, err := Tokenize(source)
 	if err != nil {

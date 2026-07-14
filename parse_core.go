@@ -6,7 +6,7 @@ import (
 )
 
 type exprParser interface {
-	parseExpression() (ExprNode, error)
+	parseExpression() (AstExprNode, error)
 }
 
 type parserCore struct {
@@ -19,7 +19,7 @@ func newParserCore(tokens []Token) parserCore {
 	return parserCore{tokens: tokens}
 }
 
-func (core *parserCore) parseExpression() (ExprNode, error) {
+func (core *parserCore) parseExpression() (AstExprNode, error) {
 	if core.expr == nil {
 		return nil, core.errorf(core.peek(), "expected expression")
 	}
@@ -118,11 +118,11 @@ func (core *parserCore) isTypeKeyword(token Token) bool {
 	return token.Value == "const" || LookupNamedType(token.Value) != nil
 }
 
-func (core *parserCore) parseArguments() ([]ExprNode, error) {
+func (core *parserCore) parseArguments() ([]AstExprNode, error) {
 	if core.peek().Kind == TokDelimiter && core.peek().Value == ")" {
 		return nil, nil
 	}
-	args := make([]ExprNode, 0, 4)
+	args := make([]AstExprNode, 0, 4)
 	for {
 		expr, err := core.parseExpression()
 		if err != nil {
@@ -136,7 +136,7 @@ func (core *parserCore) parseArguments() ([]ExprNode, error) {
 	return args, nil
 }
 
-func (core *parserCore) parseLiteral() (ExprNode, bool, error) {
+func (core *parserCore) parseLiteral() (AstExprNode, bool, error) {
 	token := core.peek()
 	switch token.Kind {
 	case TokNum:
@@ -147,24 +147,24 @@ func (core *parserCore) parseLiteral() (ExprNode, bool, error) {
 			if err != nil {
 				return nil, true, fmt.Errorf("syntax error on line %d: invalid float literal %q", token.Line, token.Value)
 			}
-			return &NumberLiteral{FloatValue: value, IsFloat: true, FloatType: floatType, Line: token.Line}, true, nil
+			return &AstNumberLiteral{FloatValue: value, IsFloat: true, FloatType: floatType, Line: token.Line}, true, nil
 		}
 		value, err := strconv.Atoi(token.Value)
 		if err != nil {
 			return nil, true, fmt.Errorf("syntax error on line %d: invalid integer literal %q", token.Line, token.Value)
 		}
-		return &NumberLiteral{IntValue: value, Line: token.Line}, true, nil
+		return &AstNumberLiteral{IntValue: value, Line: token.Line}, true, nil
 	case TokString:
 		core.pos++
-		return &StringLiteral{Value: token.Value, Line: token.Line}, true, nil
+		return &AstStringLiteral{Value: token.Value, Line: token.Line}, true, nil
 	case TokKeyword:
 		switch token.Value {
 		case "true":
 			core.pos++
-			return &NumberLiteral{IntValue: 1, Line: token.Line}, true, nil
+			return &AstNumberLiteral{IntValue: 1, Line: token.Line}, true, nil
 		case "false":
 			core.pos++
-			return &NumberLiteral{IntValue: 0, Line: token.Line}, true, nil
+			return &AstNumberLiteral{IntValue: 0, Line: token.Line}, true, nil
 		}
 	}
 	return nil, false, nil

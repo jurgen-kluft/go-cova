@@ -625,9 +625,35 @@ func (vm *VM) pushFromMemory(address Address, kind ValueKind) VMStatus {
 	if status != VMStatusOK {
 		return vm.setFault(status, int(address), -1, -1)
 	}
-	size := kind.Size()
-	status = vm.memory.segment[segmentStack].AppendFrom(*source, address.Index(), size)
-	return vm.recordStackPush(status, size)
+	offset := address.Index()
+	switch kind.Size() {
+	case 1:
+		value, status := source.ReadUint8(offset)
+		if status != VMStatusOK {
+			return vm.recordStatus(status)
+		}
+		return vm.pushUint8(value)
+	case 2:
+		value, status := source.ReadUint16(offset)
+		if status != VMStatusOK {
+			return vm.recordStatus(status)
+		}
+		return vm.pushUint16(value)
+	case 4:
+		value, status := source.ReadUint32(offset)
+		if status != VMStatusOK {
+			return vm.recordStatus(status)
+		}
+		return vm.pushUint32(value)
+	case 8:
+		value, status := source.ReadUint64(offset)
+		if status != VMStatusOK {
+			return vm.recordStatus(status)
+		}
+		return vm.pushUint64(value)
+	default:
+		return vm.recordStatus(VMStatusInvalidValueKind)
+	}
 }
 
 func (vm *VM) popToMemory(address Address, kind ValueKind) VMStatus {
@@ -638,7 +664,42 @@ func (vm *VM) popToMemory(address Address, kind ValueKind) VMStatus {
 	if status != VMStatusOK {
 		return status
 	}
-	return vm.memory.segment[segmentStack].TruncateTo(destination, address.Index(), kind.Size())
+	offset := address.Index()
+	size := kind.Size()
+	if size == 0 {
+		return VMStatusInvalidValueKind
+	}
+	if uint64(offset)+uint64(size) > uint64(len(*destination)) {
+		return VMStatusInvalidAddress
+	}
+	switch size {
+	case 1:
+		value, status := vm.popUint8()
+		if status != VMStatusOK {
+			return status
+		}
+		return destination.WriteUint8(offset, value)
+	case 2:
+		value, status := vm.popUint16()
+		if status != VMStatusOK {
+			return status
+		}
+		return destination.WriteUint16(offset, value)
+	case 4:
+		value, status := vm.popUint32()
+		if status != VMStatusOK {
+			return status
+		}
+		return destination.WriteUint32(offset, value)
+	case 8:
+		value, status := vm.popUint64()
+		if status != VMStatusOK {
+			return status
+		}
+		return destination.WriteUint64(offset, value)
+	default:
+		return VMStatusInvalidValueKind
+	}
 }
 
 func (vm *VM) popUint8() (uint8, VMStatus) {

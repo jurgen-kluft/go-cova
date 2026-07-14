@@ -1,119 +1,119 @@
 package cova
 
-type ProgramNode struct {
-	Decls     []*TopLevelDeclNode
-	Functions []*FunctionNode
+type AstProgramNode struct {
+	Decls     []*AstTopLevelDeclNode
+	Functions []*AstFunctionNode
 }
 
-type Parameter struct {
+type AstParameter struct {
 	Type *Type
 	Name string
 	Line int
 }
 
-type TopLevelDeclNode struct {
+type AstTopLevelDeclNode struct {
 	Index       int
 	Name        string
 	Type        *Type
-	Params      []Parameter
-	Initializer ExprNode
+	Params      []AstParameter
+	Initializer AstExprNode
 	Kind        DeclKind
 	Scope       ScopeKind
 	Line        int
 }
 
-type FunctionNode struct {
+type AstFunctionNode struct {
 	ReturnType *Type
 	Name       string
-	Params     []Parameter
-	Body       *BlockStmt
+	Params     []AstParameter
+	Body       *AstBlockStmt
 	Line       int
 }
 
-type StmtNode interface {
-	stmtNode()
+type AstStmtNode interface {
+	astStmtNode()
 }
 
-type ExprNode interface {
-	exprNode()
+type AstExprNode interface {
+	astExprNode()
 }
 
-type LvalueNode interface {
-	ExprNode
-	EmitAddress(code *CodeMemory, c *Compiler)
+type AstLvalueNode interface {
+	AstExprNode
+	astEmitAddress(code *CodeMemory, c *Compiler)
 }
 
-type BlockStmt struct {
-	Statements []StmtNode
+type AstBlockStmt struct {
+	Statements []AstStmtNode
 	Line       int
 }
 
-type IfStmt struct {
-	Condition ExprNode
-	Then      StmtNode
-	Else      StmtNode
+type AstIfStmt struct {
+	Condition AstExprNode
+	Then      AstStmtNode
+	Else      AstStmtNode
 	Line      int
 }
 
-type WhileStmt struct {
-	Condition ExprNode
-	Body      StmtNode
+type AstWhileStmt struct {
+	Condition AstExprNode
+	Body      AstStmtNode
 	Line      int
 }
 
-type ForStmt struct {
-	Init      StmtNode
-	Condition ExprNode
-	Post      StmtNode
-	Body      StmtNode
+type AstForStmt struct {
+	Init      AstStmtNode
+	Condition AstExprNode
+	Post      AstStmtNode
+	Body      AstStmtNode
 	Line      int
 }
 
-type SwitchCase struct {
-	Value ExprNode
-	Body  []StmtNode
+type AstSwitchCase struct {
+	Value AstExprNode
+	Body  []AstStmtNode
 	Line  int
 }
 
-type SwitchStmt struct {
-	Value   ExprNode
-	Cases   []SwitchCase
-	Default []StmtNode
+type AstSwitchStmt struct {
+	Value   AstExprNode
+	Cases   []AstSwitchCase
+	Default []AstStmtNode
 	Line    int
 }
 
-type BreakStmt struct {
+type AstBreakStmt struct {
 	Line int
 }
 
-type ContinueStmt struct {
+type AstContinueStmt struct {
 	Line int
 }
 
-type ReturnStmt struct {
-	Value ExprNode
+type AstReturnStmt struct {
+	Value AstExprNode
 	Line  int
 }
 
-type ExprStmt struct {
-	Expr ExprNode
+type AstExprStmt struct {
+	Expr AstExprNode
 	Line int
 }
 
-type AssignStmt struct {
-	Target LvalueNode
-	Value  ExprNode
+type AstAssignStmt struct {
+	Target AstLvalueNode
+	Value  AstExprNode
 	Line   int
 }
 
-type LocalDeclStmt struct {
+type AstLocalDeclStmt struct {
 	Type        *Type
 	Name        string
-	Initializer ExprNode
+	Initializer AstExprNode
 	Line        int
 }
 
-type NumberLiteral struct {
+type AstNumberLiteral struct {
 	IntValue   int
 	FloatValue float64
 	IsFloat    bool
@@ -121,42 +121,42 @@ type NumberLiteral struct {
 	Line       int
 }
 
-type StringLiteral struct {
+type AstStringLiteral struct {
 	Value string
 	Line  int
 }
 
-type IdentNode struct {
+type AstIdentNode struct {
 	Name string
 	Line int
 }
 
-type BinaryExpr struct {
+type AstBinaryExpr struct {
 	Op    string
-	Left  ExprNode
-	Right ExprNode
+	Left  AstExprNode
+	Right AstExprNode
 	Line  int
 }
 
-type CallExpr struct {
+type AstCallExpr struct {
 	Callee string
-	Args   []ExprNode
+	Args   []AstExprNode
 	Line   int
 }
 
-func (*BlockStmt) stmtNode()     {}
-func (*IfStmt) stmtNode()        {}
-func (*WhileStmt) stmtNode()     {}
-func (*ForStmt) stmtNode()       {}
-func (*SwitchStmt) stmtNode()    {}
-func (*ReturnStmt) stmtNode()    {}
-func (*ExprStmt) stmtNode()      {}
-func (*AssignStmt) stmtNode()    {}
-func (*LocalDeclStmt) stmtNode() {}
-func (*BreakStmt) stmtNode()     {}
-func (*ContinueStmt) stmtNode()  {}
-func (*NumberLiteral) exprNode() {}
-func (*StringLiteral) exprNode() {}
-func (*IdentNode) exprNode()     {}
-func (*BinaryExpr) exprNode()    {}
-func (*CallExpr) exprNode()      {}
+func (*AstBlockStmt) astStmtNode()     {}
+func (*AstIfStmt) astStmtNode()        {}
+func (*AstWhileStmt) astStmtNode()     {}
+func (*AstForStmt) astStmtNode()       {}
+func (*AstSwitchStmt) astStmtNode()    {}
+func (*AstReturnStmt) astStmtNode()    {}
+func (*AstExprStmt) astStmtNode()      {}
+func (*AstAssignStmt) astStmtNode()    {}
+func (*AstLocalDeclStmt) astStmtNode() {}
+func (*AstBreakStmt) astStmtNode()     {}
+func (*AstContinueStmt) astStmtNode()  {}
+func (*AstNumberLiteral) astExprNode() {}
+func (*AstStringLiteral) astExprNode() {}
+func (*AstIdentNode) astExprNode()     {}
+func (*AstBinaryExpr) astExprNode()    {}
+func (*AstCallExpr) astExprNode()      {}

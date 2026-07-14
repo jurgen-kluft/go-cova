@@ -6,7 +6,7 @@ import (
 )
 
 // Optimize applies isolated, in-place AST optimizations to program.
-func Optimize(program *ProgramNode) error {
+func Optimize(program *AstProgramNode) error {
 	if program == nil {
 		return fmt.Errorf("optimization error: program is nil")
 	}
@@ -22,7 +22,7 @@ type optimizer struct {
 	returnType      *Type
 }
 
-func newOptimizer(program *ProgramNode) *optimizer {
+func newOptimizer(program *AstProgramNode) *optimizer {
 	result := &optimizer{
 		globals:         make(map[string]*Type, len(program.Decls)),
 		functions:       make(map[string][]*Type, len(program.Decls)+len(program.Functions)),
@@ -48,7 +48,7 @@ func newOptimizer(program *ProgramNode) *optimizer {
 	return result
 }
 
-func optimizerParameterTypes(params []Parameter) []*Type {
+func optimizerParameterTypes(params []AstParameter) []*Type {
 	types := make([]*Type, len(params))
 	for index, param := range params {
 		types[index] = param.Type
@@ -56,7 +56,7 @@ func optimizerParameterTypes(params []Parameter) []*Type {
 	return types
 }
 
-func (optimizer *optimizer) optimizeProgram(program *ProgramNode) error {
+func (optimizer *optimizer) optimizeProgram(program *AstProgramNode) error {
 	for _, decl := range program.Decls {
 		if decl == nil || decl.Initializer == nil {
 			continue
@@ -83,7 +83,7 @@ func (optimizer *optimizer) optimizeProgram(program *ProgramNode) error {
 	return nil
 }
 
-func (optimizer *optimizer) optimizeBlock(block *BlockStmt) error {
+func (optimizer *optimizer) optimizeBlock(block *AstBlockStmt) error {
 	if block == nil {
 		return nil
 	}
@@ -97,17 +97,17 @@ func (optimizer *optimizer) optimizeBlock(block *BlockStmt) error {
 	return nil
 }
 
-func (optimizer *optimizer) optimizeStmt(statement StmtNode) error {
+func (optimizer *optimizer) optimizeStmt(statement AstStmtNode) error {
 	var err error
 	switch node := statement.(type) {
-	case *BlockStmt:
+	case *AstBlockStmt:
 		return optimizer.optimizeBlock(node)
-	case *LocalDeclStmt:
+	case *AstLocalDeclStmt:
 		if node.Initializer != nil {
 			node.Initializer, err = optimizer.optimizeExpr(node.Initializer, node.Type)
 		}
 		optimizer.locals[len(optimizer.locals)-1][node.Name] = node.Type
-	case *IfStmt:
+	case *AstIfStmt:
 		node.Condition, err = optimizer.optimizeExpr(node.Condition, Int32Type)
 		if err == nil {
 			err = optimizer.optimizeStmt(node.Then)
@@ -115,12 +115,12 @@ func (optimizer *optimizer) optimizeStmt(statement StmtNode) error {
 		if err == nil && node.Else != nil {
 			err = optimizer.optimizeStmt(node.Else)
 		}
-	case *WhileStmt:
+	case *AstWhileStmt:
 		node.Condition, err = optimizer.optimizeExpr(node.Condition, Int32Type)
 		if err == nil {
 			err = optimizer.optimizeStmt(node.Body)
 		}
-	case *ForStmt:
+	case *AstForStmt:
 		if node.Init != nil {
 			err = optimizer.optimizeStmt(node.Init)
 		}
@@ -133,7 +133,7 @@ func (optimizer *optimizer) optimizeStmt(statement StmtNode) error {
 		if err == nil {
 			err = optimizer.optimizeStmt(node.Body)
 		}
-	case *SwitchStmt:
+	case *AstSwitchStmt:
 		node.Value, err = optimizer.optimizeExpr(node.Value, optimizer.exprType(node.Value))
 		for index := range node.Cases {
 			if err != nil {
@@ -152,23 +152,23 @@ func (optimizer *optimizer) optimizeStmt(statement StmtNode) error {
 				err = optimizer.optimizeStmt(child)
 			}
 		}
-	case *ReturnStmt:
+	case *AstReturnStmt:
 		if node.Value != nil {
 			node.Value, err = optimizer.optimizeExpr(node.Value, optimizer.returnType)
 		}
-	case *ExprStmt:
+	case *AstExprStmt:
 		node.Expr, err = optimizer.optimizeExpr(node.Expr, optimizer.exprType(node.Expr))
-	case *AssignStmt:
+	case *AstAssignStmt:
 		node.Value, err = optimizer.optimizeExpr(node.Value, optimizer.exprType(node.Target))
 	}
 	return err
 }
 
-func (optimizer *optimizer) optimizeExpr(expression ExprNode, expected *Type) (ExprNode, error) {
+func (optimizer *optimizer) optimizeExpr(expression AstExprNode, expected *Type) (AstExprNode, error) {
 	switch node := expression.(type) {
-	case *BinaryExpr:
+	case *AstBinaryExpr:
 		return optimizer.optimizeBinary(node, expected)
-	case *CallExpr:
+	case *AstCallExpr:
 		params := optimizer.functions[node.Callee]
 		for index, argument := range node.Args {
 			var argumentType *Type
@@ -185,7 +185,7 @@ func (optimizer *optimizer) optimizeExpr(expression ExprNode, expected *Type) (E
 	return expression, nil
 }
 
-func (optimizer *optimizer) optimizeBinary(node *BinaryExpr, expected *Type) (ExprNode, error) {
+func (optimizer *optimizer) optimizeBinary(node *AstBinaryExpr, expected *Type) (AstExprNode, error) {
 	if node.Op == "&&" || node.Op == "||" {
 		return optimizer.optimizeLogical(node)
 	}
@@ -207,8 +207,8 @@ func (optimizer *optimizer) optimizeBinary(node *BinaryExpr, expected *Type) (Ex
 		return nil, err
 	}
 	node.Left, node.Right = left, right
-	leftLiteral, leftOK := left.(*NumberLiteral)
-	rightLiteral, rightOK := right.(*NumberLiteral)
+	leftLiteral, leftOK := left.(*AstNumberLiteral)
+	rightLiteral, rightOK := right.(*AstNumberLiteral)
 	if !leftOK || !rightOK {
 		return node, nil
 	}
@@ -217,7 +217,7 @@ func (optimizer *optimizer) optimizeBinary(node *BinaryExpr, expected *Type) (Ex
 	rightConstant := optimizerLiteralBits(rightLiteral, constantKind)
 	if optimizerIsComparison(node.Op) {
 		value := optimizerCompare(constantKind, node.Op, leftConstant, rightConstant)
-		return &NumberLiteral{IntValue: value, Line: node.Line}, nil
+		return &AstNumberLiteral{IntValue: value, Line: node.Line}, nil
 	}
 	bits, err := optimizerArithmetic(constantKind, node.Op, leftConstant, rightConstant)
 	if err != nil {
@@ -226,16 +226,16 @@ func (optimizer *optimizer) optimizeBinary(node *BinaryExpr, expected *Type) (Ex
 	return optimizerLiteralFromBits(bits, constantKind, node.Line), nil
 }
 
-func (optimizer *optimizer) optimizeLogical(node *BinaryExpr) (ExprNode, error) {
+func (optimizer *optimizer) optimizeLogical(node *AstBinaryExpr) (AstExprNode, error) {
 	left, err := optimizer.optimizeExpr(node.Left, Int32Type)
 	if err != nil {
 		return nil, err
 	}
 	node.Left = left
-	if literal, ok := left.(*NumberLiteral); ok {
+	if literal, ok := left.(*AstNumberLiteral); ok {
 		truth := optimizerLiteralBits(literal, optimizerInt32) != 0
 		if (node.Op == "&&" && !truth) || (node.Op == "||" && truth) {
-			return &NumberLiteral{IntValue: optimizerBoolInt(truth), Line: node.Line}, nil
+			return &AstNumberLiteral{IntValue: optimizerBoolInt(truth), Line: node.Line}, nil
 		}
 	}
 	right, err := optimizer.optimizeExpr(node.Right, Int32Type)
@@ -243,22 +243,22 @@ func (optimizer *optimizer) optimizeLogical(node *BinaryExpr) (ExprNode, error) 
 		return nil, err
 	}
 	node.Right = right
-	leftLiteral, leftOK := left.(*NumberLiteral)
-	rightLiteral, rightOK := right.(*NumberLiteral)
+	leftLiteral, leftOK := left.(*AstNumberLiteral)
+	rightLiteral, rightOK := right.(*AstNumberLiteral)
 	if !leftOK || !rightOK {
 		return node, nil
 	}
 	leftTruth := optimizerLiteralBits(leftLiteral, optimizerInt32) != 0
 	rightTruth := optimizerLiteralBits(rightLiteral, optimizerInt32) != 0
 	if node.Op == "&&" {
-		return &NumberLiteral{IntValue: optimizerBoolInt(leftTruth && rightTruth), Line: node.Line}, nil
+		return &AstNumberLiteral{IntValue: optimizerBoolInt(leftTruth && rightTruth), Line: node.Line}, nil
 	}
-	return &NumberLiteral{IntValue: optimizerBoolInt(leftTruth || rightTruth), Line: node.Line}, nil
+	return &AstNumberLiteral{IntValue: optimizerBoolInt(leftTruth || rightTruth), Line: node.Line}, nil
 }
 
-func (optimizer *optimizer) exprType(expression ExprNode) *Type {
+func (optimizer *optimizer) exprType(expression AstExprNode) *Type {
 	switch node := expression.(type) {
-	case *NumberLiteral:
+	case *AstNumberLiteral:
 		if node.IsFloat {
 			if node.FloatType != nil {
 				return node.FloatType
@@ -266,14 +266,14 @@ func (optimizer *optimizer) exprType(expression ExprNode) *Type {
 			return Float32Type
 		}
 		return Int32Type
-	case *IdentNode:
+	case *AstIdentNode:
 		for index := len(optimizer.locals) - 1; index >= 0; index-- {
 			if typ, ok := optimizer.locals[index][node.Name]; ok {
 				return typ
 			}
 		}
 		return optimizer.globals[node.Name]
-	case *BinaryExpr:
+	case *AstBinaryExpr:
 		if node.Op == "&&" || node.Op == "||" {
 			return BoolType
 		}
@@ -281,7 +281,7 @@ func (optimizer *optimizer) exprType(expression ExprNode) *Type {
 			return Int32Type
 		}
 		return optimizerPromoteNumericType(optimizer.exprType(node.Left), optimizer.exprType(node.Right))
-	case *CallExpr:
+	case *AstCallExpr:
 		return optimizer.functionReturns[node.Callee]
 	}
 	return nil
@@ -330,7 +330,7 @@ func optimizerKindFromType(typ *Type) optimizerNumericKind {
 	}
 }
 
-func optimizerLiteralBits(literal *NumberLiteral, kind optimizerNumericKind) uint64 {
+func optimizerLiteralBits(literal *AstNumberLiteral, kind optimizerNumericKind) uint64 {
 	if literal.IsFloat {
 		return optimizerFloatToBits(literal.FloatValue, kind)
 	}
@@ -365,14 +365,14 @@ func optimizerFloatToBits(value float64, kind optimizerNumericKind) uint64 {
 	}
 }
 
-func optimizerLiteralFromBits(bits uint64, kind optimizerNumericKind, line int) *NumberLiteral {
+func optimizerLiteralFromBits(bits uint64, kind optimizerNumericKind, line int) *AstNumberLiteral {
 	switch kind {
 	case optimizerFloat32:
-		return &NumberLiteral{FloatValue: float64(math.Float32frombits(uint32(bits))), IsFloat: true, FloatType: Float32Type, Line: line}
+		return &AstNumberLiteral{FloatValue: float64(math.Float32frombits(uint32(bits))), IsFloat: true, FloatType: Float32Type, Line: line}
 	case optimizerFloat64:
-		return &NumberLiteral{FloatValue: math.Float64frombits(bits), IsFloat: true, FloatType: Float64Type, Line: line}
+		return &AstNumberLiteral{FloatValue: math.Float64frombits(bits), IsFloat: true, FloatType: Float64Type, Line: line}
 	}
-	return &NumberLiteral{IntValue: int(optimizerSignedOrUnsignedValue(bits, kind)), Line: line}
+	return &AstNumberLiteral{IntValue: int(optimizerSignedOrUnsignedValue(bits, kind)), Line: line}
 }
 
 func optimizerSignedOrUnsignedValue(bits uint64, kind optimizerNumericKind) int64 {

@@ -8,11 +8,11 @@ func newExpressionParser(core *parserCore) *expressionParser {
 	return &expressionParser{core: core}
 }
 
-func (parser *expressionParser) parseExpression() (ExprNode, error) {
+func (parser *expressionParser) parseExpression() (AstExprNode, error) {
 	return parser.parseExpressionWithBindingPower(0)
 }
 
-func (parser *expressionParser) parseExpressionWithBindingPower(minBindingPower int) (ExprNode, error) {
+func (parser *expressionParser) parseExpressionWithBindingPower(minBindingPower int) (AstExprNode, error) {
 	left, err := parser.parsePrefixExpression()
 	if err != nil {
 		return nil, err
@@ -25,7 +25,7 @@ func (parser *expressionParser) parseExpressionWithBindingPower(minBindingPower 
 			if callBindingPower < minBindingPower {
 				break
 			}
-			ident, ok := left.(*IdentNode)
+			ident, ok := left.(*AstIdentNode)
 			if !ok {
 				return nil, parser.core.errorf(token, "expected expression")
 			}
@@ -37,7 +37,7 @@ func (parser *expressionParser) parseExpressionWithBindingPower(minBindingPower 
 			if _, err := parser.core.expectDelimiter(")"); err != nil {
 				return nil, err
 			}
-			left = &CallExpr{Callee: ident.Name, Args: args, Line: ident.Line}
+			left = &AstCallExpr{Callee: ident.Name, Args: args, Line: ident.Line}
 			continue
 		}
 
@@ -50,13 +50,13 @@ func (parser *expressionParser) parseExpressionWithBindingPower(minBindingPower 
 		if err != nil {
 			return nil, err
 		}
-		left = &BinaryExpr{Op: token.Value, Left: left, Right: right, Line: token.Line}
+		left = &AstBinaryExpr{Op: token.Value, Left: left, Right: right, Line: token.Line}
 	}
 
 	return left, nil
 }
 
-func (parser *expressionParser) parsePrefixExpression() (ExprNode, error) {
+func (parser *expressionParser) parsePrefixExpression() (AstExprNode, error) {
 	token := parser.core.peek()
 	if literal, ok, err := parser.core.parseLiteral(); ok || err != nil {
 		return literal, err
@@ -67,7 +67,7 @@ func (parser *expressionParser) parsePrefixExpression() (ExprNode, error) {
 		return nil, parser.core.errorf(token, "expected expression")
 	case TokIdent:
 		parser.core.pos++
-		return &IdentNode{Name: token.Value, Line: token.Line}, nil
+		return &AstIdentNode{Name: token.Value, Line: token.Line}, nil
 	case TokDelimiter:
 		if token.Value != "(" {
 			return nil, parser.core.errorf(token, "expected expression")

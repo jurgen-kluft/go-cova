@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func parseProgram(t *testing.T, script string) *ProgramNode {
+func parseProgram(t *testing.T, script string) *AstProgramNode {
 	t.Helper()
 	tokens, err := Tokenize(script)
 	if err != nil {
@@ -48,7 +48,7 @@ int helper(int left, int right) {
 	if len(mainFn.Body.Statements) != 3 {
 		t.Fatalf("expected 3 statements in script_main, got %d", len(mainFn.Body.Statements))
 	}
-	if _, ok := mainFn.Body.Statements[1].(*IfStmt); !ok {
+	if _, ok := mainFn.Body.Statements[1].(*AstIfStmt); !ok {
 		t.Fatalf("expected second statement to be if, got %T", mainFn.Body.Statements[1])
 	}
 }
@@ -105,13 +105,13 @@ int script_main() {
 	if len(mainFn.Body.Statements) != 4 {
 		t.Fatalf("expected 4 top-level statements in script_main, got %d", len(mainFn.Body.Statements))
 	}
-	if _, ok := mainFn.Body.Statements[1].(*WhileStmt); !ok {
+	if _, ok := mainFn.Body.Statements[1].(*AstWhileStmt); !ok {
 		t.Fatalf("expected second statement to be while, got %T", mainFn.Body.Statements[1])
 	}
-	if _, ok := mainFn.Body.Statements[2].(*ForStmt); !ok {
+	if _, ok := mainFn.Body.Statements[2].(*AstForStmt); !ok {
 		t.Fatalf("expected third statement to be for, got %T", mainFn.Body.Statements[2])
 	}
-	if _, ok := mainFn.Body.Statements[3].(*ReturnStmt); !ok {
+	if _, ok := mainFn.Body.Statements[3].(*AstReturnStmt); !ok {
 		t.Fatalf("expected fourth statement to be return, got %T", mainFn.Body.Statements[3])
 	}
 }
@@ -140,16 +140,16 @@ float64 script_main() {
 	if len(mainFn.Body.Statements) != 4 {
 		t.Fatalf("expected 4 statements in script_main, got %d", len(mainFn.Body.Statements))
 	}
-	if _, ok := mainFn.Body.Statements[0].(*LocalDeclStmt); !ok {
+	if _, ok := mainFn.Body.Statements[0].(*AstLocalDeclStmt); !ok {
 		t.Fatalf("expected first statement to be local declaration, got %T", mainFn.Body.Statements[0])
 	}
-	if _, ok := mainFn.Body.Statements[1].(*LocalDeclStmt); !ok {
+	if _, ok := mainFn.Body.Statements[1].(*AstLocalDeclStmt); !ok {
 		t.Fatalf("expected second statement to be local declaration, got %T", mainFn.Body.Statements[1])
 	}
-	if _, ok := mainFn.Body.Statements[2].(*IfStmt); !ok {
+	if _, ok := mainFn.Body.Statements[2].(*AstIfStmt); !ok {
 		t.Fatalf("expected third statement to be if, got %T", mainFn.Body.Statements[2])
 	}
-	if _, ok := mainFn.Body.Statements[3].(*ReturnStmt); !ok {
+	if _, ok := mainFn.Body.Statements[3].(*AstReturnStmt); !ok {
 		t.Fatalf("expected fourth statement to be return, got %T", mainFn.Body.Statements[3])
 	}
 }
@@ -228,11 +228,11 @@ float64 script_main() {
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
-	ret, ok := program.Functions[0].Body.Statements[0].(*ReturnStmt)
+	ret, ok := program.Functions[0].Body.Statements[0].(*AstReturnStmt)
 	if !ok {
 		t.Fatalf("expected return statement, got %T", program.Functions[0].Body.Statements[0])
 	}
-	lit, ok := ret.Value.(*NumberLiteral)
+	lit, ok := ret.Value.(*AstNumberLiteral)
 	if !ok {
 		t.Fatalf("expected numeric literal, got %T", ret.Value)
 	}
@@ -277,16 +277,16 @@ float64 script_main() {
 		{index: 3, want: Float64Type, value: 30},
 	}
 	for _, check := range checks {
-		var expr ExprNode
+		var expr AstExprNode
 		switch node := statements[check.index].(type) {
-		case *ExprStmt:
+		case *AstExprStmt:
 			expr = node.Expr
-		case *ReturnStmt:
+		case *AstReturnStmt:
 			expr = node.Value
 		default:
 			t.Fatalf("expected numeric expression statement, got %T", statements[check.index])
 		}
-		lit, ok := expr.(*NumberLiteral)
+		lit, ok := expr.(*AstNumberLiteral)
 		if !ok {
 			t.Fatalf("expected numeric literal at statement %d, got %T", check.index, expr)
 		}
@@ -311,11 +311,11 @@ void script_main() {
 `
 
 	program := parseProgram(t, script)
-	stmt, ok := program.Functions[0].Body.Statements[0].(*ExprStmt)
+	stmt, ok := program.Functions[0].Body.Statements[0].(*AstExprStmt)
 	if !ok {
 		t.Fatalf("expected expression statement, got %T", program.Functions[0].Body.Statements[0])
 	}
-	literal, ok := stmt.Expr.(*StringLiteral)
+	literal, ok := stmt.Expr.(*AstStringLiteral)
 	if !ok {
 		t.Fatalf("expected string literal, got %T", stmt.Expr)
 	}
@@ -341,7 +341,7 @@ void script_main() {
 	if decl.Type == nil || !decl.Type.Base.IsConst || decl.Type.IsConst {
 		t.Fatalf("expected parsed type const uint8*, got %v", decl.Type)
 	}
-	literal, ok := decl.Initializer.(*StringLiteral)
+	literal, ok := decl.Initializer.(*AstStringLiteral)
 	if !ok {
 		t.Fatalf("expected string literal initializer, got %T", decl.Initializer)
 	}
@@ -367,39 +367,39 @@ int script_main() {
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
-	ret, ok := program.Functions[0].Body.Statements[0].(*ReturnStmt)
+	ret, ok := program.Functions[0].Body.Statements[0].(*AstReturnStmt)
 	if !ok {
 		t.Fatalf("expected return statement, got %T", program.Functions[0].Body.Statements[0])
 	}
-	orExpr, ok := ret.Value.(*BinaryExpr)
+	orExpr, ok := ret.Value.(*AstBinaryExpr)
 	if !ok {
 		t.Fatalf("expected top-level binary expression, got %T", ret.Value)
 	}
 	if orExpr.Op != "||" {
 		t.Fatalf("expected top-level operator ||, got %q", orExpr.Op)
 	}
-	leftLiteral, ok := orExpr.Left.(*NumberLiteral)
+	leftLiteral, ok := orExpr.Left.(*AstNumberLiteral)
 	if !ok {
 		t.Fatalf("expected left operand to be numeric literal, got %T", orExpr.Left)
 	}
 	if leftLiteral.IntValue != 1 {
 		t.Fatalf("expected true to lower to 1, got %d", leftLiteral.IntValue)
 	}
-	andExpr, ok := orExpr.Right.(*BinaryExpr)
+	andExpr, ok := orExpr.Right.(*AstBinaryExpr)
 	if !ok {
 		t.Fatalf("expected right operand to be binary expression, got %T", orExpr.Right)
 	}
 	if andExpr.Op != "&&" {
 		t.Fatalf("expected right operand operator &&, got %q", andExpr.Op)
 	}
-	falseLiteral, ok := andExpr.Left.(*NumberLiteral)
+	falseLiteral, ok := andExpr.Left.(*AstNumberLiteral)
 	if !ok {
 		t.Fatalf("expected false literal to lower to numeric literal, got %T", andExpr.Left)
 	}
 	if falseLiteral.IntValue != 0 {
 		t.Fatalf("expected false to lower to 0, got %d", falseLiteral.IntValue)
 	}
-	compareExpr, ok := andExpr.Right.(*BinaryExpr)
+	compareExpr, ok := andExpr.Right.(*AstBinaryExpr)
 	if !ok {
 		t.Fatalf("expected comparison expression on && right operand, got %T", andExpr.Right)
 	}
@@ -427,39 +427,39 @@ int script_main() {
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
-	ret, ok := program.Functions[0].Body.Statements[0].(*ReturnStmt)
+	ret, ok := program.Functions[0].Body.Statements[0].(*AstReturnStmt)
 	if !ok {
 		t.Fatalf("expected return statement, got %T", program.Functions[0].Body.Statements[0])
 	}
-	andExpr, ok := ret.Value.(*BinaryExpr)
+	andExpr, ok := ret.Value.(*AstBinaryExpr)
 	if !ok {
 		t.Fatalf("expected top-level binary expression, got %T", ret.Value)
 	}
 	if andExpr.Op != "&&" {
 		t.Fatalf("expected top-level operator &&, got %q", andExpr.Op)
 	}
-	leftIdent, ok := andExpr.Left.(*IdentNode)
+	leftIdent, ok := andExpr.Left.(*AstIdentNode)
 	if !ok {
 		t.Fatalf("expected left operand identifier, got %T", andExpr.Left)
 	}
 	if leftIdent.Name != "bool1" {
 		t.Fatalf("expected left operand bool1, got %q", leftIdent.Name)
 	}
-	orExpr, ok := andExpr.Right.(*BinaryExpr)
+	orExpr, ok := andExpr.Right.(*AstBinaryExpr)
 	if !ok {
 		t.Fatalf("expected grouped right operand to be binary expression, got %T", andExpr.Right)
 	}
 	if orExpr.Op != "||" {
 		t.Fatalf("expected grouped right operand operator ||, got %q", orExpr.Op)
 	}
-	leftGrouped, ok := orExpr.Left.(*IdentNode)
+	leftGrouped, ok := orExpr.Left.(*AstIdentNode)
 	if !ok {
 		t.Fatalf("expected grouped left operand identifier, got %T", orExpr.Left)
 	}
 	if leftGrouped.Name != "bool2" {
 		t.Fatalf("expected grouped left operand bool2, got %q", leftGrouped.Name)
 	}
-	rightGrouped, ok := orExpr.Right.(*IdentNode)
+	rightGrouped, ok := orExpr.Right.(*AstIdentNode)
 	if !ok {
 		t.Fatalf("expected grouped right operand identifier, got %T", orExpr.Right)
 	}
@@ -490,29 +490,29 @@ int script_main() {
 		t.Fatalf("Parse failed: %v", err)
 	}
 	statements := program.Functions[0].Body.Statements
-	countDecl, ok := statements[0].(*LocalDeclStmt)
+	countDecl, ok := statements[0].(*AstLocalDeclStmt)
 	if !ok {
 		t.Fatalf("expected first statement to be local declaration, got %T", statements[0])
 	}
 	if countDecl.Type != IntType || countDecl.Name != "count" || countDecl.Initializer != nil {
 		t.Fatalf("unexpected first local declaration: type=%v name=%q initializer=%T", countDecl.Type, countDecl.Name, countDecl.Initializer)
 	}
-	readyDecl, ok := statements[1].(*LocalDeclStmt)
+	readyDecl, ok := statements[1].(*AstLocalDeclStmt)
 	if !ok {
 		t.Fatalf("expected second statement to be local declaration, got %T", statements[1])
 	}
 	if readyDecl.Type == nil || readyDecl.Type.Kind != TypeBool || !readyDecl.Type.IsConst || readyDecl.Name != "ready" {
 		t.Fatalf("unexpected second local declaration: type=%v name=%q", readyDecl.Type, readyDecl.Name)
 	}
-	readyInit, ok := readyDecl.Initializer.(*NumberLiteral)
+	readyInit, ok := readyDecl.Initializer.(*AstNumberLiteral)
 	if !ok || readyInit.IntValue != 1 {
 		t.Fatalf("expected bool initializer to lower to numeric literal 1, got %T value=%v", readyDecl.Initializer, readyDecl.Initializer)
 	}
-	innerBlock, ok := statements[2].(*BlockStmt)
+	innerBlock, ok := statements[2].(*AstBlockStmt)
 	if !ok {
 		t.Fatalf("expected third statement to be inner block, got %T", statements[2])
 	}
-	innerDecl, ok := innerBlock.Statements[0].(*LocalDeclStmt)
+	innerDecl, ok := innerBlock.Statements[0].(*AstLocalDeclStmt)
 	if !ok {
 		t.Fatalf("expected first inner statement to be local declaration, got %T", innerBlock.Statements[0])
 	}
@@ -598,18 +598,18 @@ void script_main() {
 		t.Fatalf("Parse failed: %v", err)
 	}
 	statements := program.Functions[0].Body.Statements
-	if _, ok := statements[0].(*WhileStmt); !ok {
+	if _, ok := statements[0].(*AstWhileStmt); !ok {
 		t.Fatalf("expected first statement to be while, got %T", statements[0])
 	}
-	forStmt, ok := statements[1].(*ForStmt)
+	forStmt, ok := statements[1].(*AstForStmt)
 	if !ok {
 		t.Fatalf("expected second statement to be for, got %T", statements[1])
 	}
-	body, ok := forStmt.Body.(*BlockStmt)
+	body, ok := forStmt.Body.(*AstBlockStmt)
 	if !ok {
 		t.Fatalf("expected for body block, got %T", forStmt.Body)
 	}
-	if _, ok := body.Statements[0].(*SwitchStmt); !ok {
+	if _, ok := body.Statements[0].(*AstSwitchStmt); !ok {
 		t.Fatalf("expected switch statement inside for body, got %T", body.Statements[0])
 	}
 }

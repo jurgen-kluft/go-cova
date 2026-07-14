@@ -146,35 +146,55 @@ func (segment *MemorySegment) growForAppend(size uint32) (uint32, VMStatus) {
 }
 
 func (segment *MemorySegment) AppendUint8(value uint8) VMStatus {
-	base, status := segment.growForAppend(1)
-	if status != VMStatusOK {
-		return status
+	if segment == nil {
+		return VMStatusInvalidAddress
 	}
-	return segment.WriteUint8(base, value)
+	base := uint32(len(*segment))
+	if uint64(base)+1 > uint64(cap(*segment)) {
+		return VMStatusStackOverflow
+	}
+	*segment = (*segment)[:base+1]
+	(*segment)[base] = value
+	return VMStatusOK
 }
 
 func (segment *MemorySegment) AppendUint16(value uint16) VMStatus {
-	base, status := segment.growForAppend(2)
-	if status != VMStatusOK {
-		return status
+	if segment == nil {
+		return VMStatusInvalidAddress
 	}
-	return segment.WriteUint16(base, value)
+	base := uint32(len(*segment))
+	if uint64(base)+2 > uint64(cap(*segment)) {
+		return VMStatusStackOverflow
+	}
+	*segment = (*segment)[:base+2]
+	binary.LittleEndian.PutUint16((*segment)[base:], value)
+	return VMStatusOK
 }
 
 func (segment *MemorySegment) AppendUint32(value uint32) VMStatus {
-	base, status := segment.growForAppend(4)
-	if status != VMStatusOK {
-		return status
+	if segment == nil {
+		return VMStatusInvalidAddress
 	}
-	return segment.WriteUint32(base, value)
+	base := uint32(len(*segment))
+	if uint64(base)+4 > uint64(cap(*segment)) {
+		return VMStatusStackOverflow
+	}
+	*segment = (*segment)[:base+4]
+	binary.LittleEndian.PutUint32((*segment)[base:], value)
+	return VMStatusOK
 }
 
 func (segment *MemorySegment) AppendUint64(value uint64) VMStatus {
-	base, status := segment.growForAppend(8)
-	if status != VMStatusOK {
-		return status
+	if segment == nil {
+		return VMStatusInvalidAddress
 	}
-	return segment.WriteUint64(base, value)
+	base := uint32(len(*segment))
+	if uint64(base)+8 > uint64(cap(*segment)) {
+		return VMStatusStackOverflow
+	}
+	*segment = (*segment)[:base+8]
+	binary.LittleEndian.PutUint64((*segment)[base:], value)
+	return VMStatusOK
 }
 
 func (segment *MemorySegment) AppendFrom(source MemorySegment, offset uint32, size uint32) VMStatus {
@@ -240,51 +260,55 @@ func (segment *MemorySegment) truncateOffset(size uint32) (uint32, VMStatus) {
 }
 
 func (segment *MemorySegment) TruncateUint8() (uint8, VMStatus) {
-	offset, status := segment.truncateOffset(1)
-	if status != VMStatusOK {
-		return 0, status
+	if segment == nil {
+		return 0, VMStatusInvalidAddress
 	}
-	value, status := MemorySegment(*segment).ReadUint8(offset)
-	if status == VMStatusOK {
-		*segment = (*segment)[:offset]
+	if len(*segment) < 1 {
+		return 0, VMStatusStackUnderflow
 	}
-	return value, status
+	offset := uint32(len(*segment) - 1)
+	value := (*segment)[offset]
+	*segment = (*segment)[:offset]
+	return value, VMStatusOK
 }
 
 func (segment *MemorySegment) TruncateUint16() (uint16, VMStatus) {
-	offset, status := segment.truncateOffset(2)
-	if status != VMStatusOK {
-		return 0, status
+	if segment == nil {
+		return 0, VMStatusInvalidAddress
 	}
-	value, status := MemorySegment(*segment).ReadUint16(offset)
-	if status == VMStatusOK {
-		*segment = (*segment)[:offset]
+	if len(*segment) < 2 {
+		return 0, VMStatusStackUnderflow
 	}
-	return value, status
+	offset := uint32(len(*segment) - 2)
+	value := binary.LittleEndian.Uint16((*segment)[offset:])
+	*segment = (*segment)[:offset]
+	return value, VMStatusOK
 }
 
 func (segment *MemorySegment) TruncateUint32() (uint32, VMStatus) {
-	offset, status := segment.truncateOffset(4)
-	if status != VMStatusOK {
-		return 0, status
+	if segment == nil {
+		return 0, VMStatusInvalidAddress
 	}
-	value, status := MemorySegment(*segment).ReadUint32(offset)
-	if status == VMStatusOK {
-		*segment = (*segment)[:offset]
+	if len(*segment) < 4 {
+		return 0, VMStatusStackUnderflow
 	}
-	return value, status
+	offset := uint32(len(*segment) - 4)
+	value := binary.LittleEndian.Uint32((*segment)[offset:])
+	*segment = (*segment)[:offset]
+	return value, VMStatusOK
 }
 
 func (segment *MemorySegment) TruncateUint64() (uint64, VMStatus) {
-	offset, status := segment.truncateOffset(8)
-	if status != VMStatusOK {
-		return 0, status
+	if segment == nil {
+		return 0, VMStatusInvalidAddress
 	}
-	value, status := MemorySegment(*segment).ReadUint64(offset)
-	if status == VMStatusOK {
-		*segment = (*segment)[:offset]
+	if len(*segment) < 8 {
+		return 0, VMStatusStackUnderflow
 	}
-	return value, status
+	offset := uint32(len(*segment) - 8)
+	value := binary.LittleEndian.Uint64((*segment)[offset:])
+	*segment = (*segment)[:offset]
+	return value, VMStatusOK
 }
 
 func (segment *MemorySegment) TruncateBits(kind ValueKind) (uint64, VMStatus) {

@@ -5,8 +5,8 @@ import (
 	"strconv"
 )
 
-func (core *parserCore) parseProgram() (*ProgramNode, error) {
-	program := &ProgramNode{}
+func (core *parserCore) parseProgram() (*AstProgramNode, error) {
+	program := &AstProgramNode{}
 	for !core.isEOF() {
 		if core.peek().Kind == TokKeyword && core.peek().Value == "extern" {
 			decl, err := core.parseExternDecl()
@@ -31,7 +31,7 @@ func (core *parserCore) parseProgram() (*ProgramNode, error) {
 	return program, nil
 }
 
-func (core *parserCore) parseExternDecl() (*TopLevelDeclNode, error) {
+func (core *parserCore) parseExternDecl() (*AstTopLevelDeclNode, error) {
 	line := core.peek().Line
 	if _, err := core.expectKeyword("extern"); err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (core *parserCore) parseExternDecl() (*TopLevelDeclNode, error) {
 		return nil, err
 	}
 
-	decl := &TopLevelDeclNode{Index: index, Name: nameToken.Value, Type: typ, Scope: ScopeExtern, Line: line}
+	decl := &AstTopLevelDeclNode{Index: index, Name: nameToken.Value, Type: typ, Scope: ScopeExtern, Line: line}
 	if core.matchDelimiter("(") {
 		params, err := core.parseParameters()
 		if err != nil {
@@ -85,7 +85,7 @@ func (core *parserCore) parseExternDecl() (*TopLevelDeclNode, error) {
 	return decl, nil
 }
 
-func (core *parserCore) parseTopLevelDeclOrFunction() (*TopLevelDeclNode, *FunctionNode, error) {
+func (core *parserCore) parseTopLevelDeclOrFunction() (*AstTopLevelDeclNode, *AstFunctionNode, error) {
 	line := core.peek().Line
 	returnType, err := core.parseType()
 	if err != nil {
@@ -107,12 +107,12 @@ func (core *parserCore) parseTopLevelDeclOrFunction() (*TopLevelDeclNode, *Funct
 		if err != nil {
 			return nil, nil, err
 		}
-		return nil, &FunctionNode{ReturnType: returnType, Name: nameToken.Value, Params: params, Body: body, Line: line}, nil
+		return nil, &AstFunctionNode{ReturnType: returnType, Name: nameToken.Value, Params: params, Body: body, Line: line}, nil
 	}
 	if returnType.Kind == TypeVoid {
 		return nil, nil, fmt.Errorf("syntax error on line %d: internal variable %q cannot have type void", line, nameToken.Value)
 	}
-	var initializer ExprNode
+	var initializer AstExprNode
 	scope := ScopeBSS
 	if core.matchOperator("=") {
 		initializer, err = core.parseExpression()
@@ -127,7 +127,7 @@ func (core *parserCore) parseTopLevelDeclOrFunction() (*TopLevelDeclNode, *Funct
 	if _, err := core.expectDelimiter(";"); err != nil {
 		return nil, nil, err
 	}
-	decl := &TopLevelDeclNode{
+	decl := &AstTopLevelDeclNode{
 		Index:       -1,
 		Name:        nameToken.Value,
 		Type:        returnType,
@@ -139,12 +139,12 @@ func (core *parserCore) parseTopLevelDeclOrFunction() (*TopLevelDeclNode, *Funct
 	return decl, nil, nil
 }
 
-func (core *parserCore) parseParameters() ([]Parameter, error) {
+func (core *parserCore) parseParameters() ([]AstParameter, error) {
 	if core.peek().Kind == TokDelimiter && core.peek().Value == ")" {
 		return nil, nil
 	}
 
-	params := make([]Parameter, 0, 4)
+	params := make([]AstParameter, 0, 4)
 	for {
 		typ, err := core.parseType()
 		if err != nil {
@@ -154,7 +154,7 @@ func (core *parserCore) parseParameters() ([]Parameter, error) {
 		if err != nil {
 			return nil, err
 		}
-		params = append(params, Parameter{Type: typ, Name: nameToken.Value, Line: nameToken.Line})
+		params = append(params, AstParameter{Type: typ, Name: nameToken.Value, Line: nameToken.Line})
 
 		if !core.matchDelimiter(",") {
 			break

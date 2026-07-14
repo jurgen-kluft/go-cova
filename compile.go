@@ -27,7 +27,7 @@ const (
 )
 
 type Compiler struct {
-	program               *ProgramNode
+	program               *AstProgramNode
 	code                  CodeMemory
 	symbolBindings        map[string]SymbolBinding
 	externSymbols         []SymbolBinding
@@ -101,7 +101,7 @@ func cloneTypeMap(values map[string]*Type) map[string]*Type {
 	return clone
 }
 
-func parameterTypes(params []Parameter) []*Type {
+func parameterTypes(params []AstParameter) []*Type {
 	if len(params) == 0 {
 		return nil
 	}
@@ -123,7 +123,7 @@ func valueKindsFromTypes(types []*Type) []ValueKind {
 	return kinds
 }
 
-func (compiler *Compiler) Compile(program *ProgramNode) (*RelocatableProgram, error) {
+func (compiler *Compiler) Compile(program *AstProgramNode) (*RelocatableProgram, error) {
 	if program == nil {
 		return nil, fmt.Errorf("compile error: program is nil")
 	}
@@ -310,7 +310,7 @@ func (compiler *Compiler) buildScriptCallGraph(functionByTemp map[uint32]SymbolB
 	return callGraph, nil
 }
 
-func (compiler *Compiler) registerTopLevelDecl(decl *TopLevelDeclNode) {
+func (compiler *Compiler) registerTopLevelDecl(decl *AstTopLevelDeclNode) {
 	if decl == nil || compiler.err != nil {
 		return
 	}
@@ -386,7 +386,7 @@ func (compiler *Compiler) registerTopLevelDecl(decl *TopLevelDeclNode) {
 	compiler.symbolBindings[decl.Name] = binding
 }
 
-func (compiler *Compiler) registerScriptFunction(function *FunctionNode) {
+func (compiler *Compiler) registerScriptFunction(function *AstFunctionNode) {
 	if function == nil || compiler.err != nil {
 		return
 	}
@@ -427,7 +427,7 @@ func (compiler *Compiler) trackFunctionBinding(binding SymbolBinding) {
 	compiler.functions = append(compiler.functions, binding)
 }
 
-func (compiler *Compiler) compileFunction(function *FunctionNode) {
+func (compiler *Compiler) compileFunction(function *AstFunctionNode) {
 	if compiler.err != nil || function == nil {
 		return
 	}
@@ -512,9 +512,9 @@ func cloneBindingsMap(bindings map[string]SymbolBinding) map[string]SymbolBindin
 	return clone
 }
 
-func (compiler *Compiler) exprType(expr ExprNode) *Type {
+func (compiler *Compiler) exprType(expr AstExprNode) *Type {
 	switch node := expr.(type) {
-	case *NumberLiteral:
+	case *AstNumberLiteral:
 		if node.IsFloat {
 			if node.FloatType != nil {
 				return node.FloatType
@@ -522,16 +522,16 @@ func (compiler *Compiler) exprType(expr ExprNode) *Type {
 			return Float32Type
 		}
 		return Int32Type
-	case *StringLiteral:
+	case *AstStringLiteral:
 		return PointerTo(QualifiedType(Uint8Type, true))
-	case *IdentNode:
+	case *AstIdentNode:
 		if localType, ok := compiler.localTypes[node.Name]; ok {
 			return localType
 		}
 		if binding, ok := compiler.symbolBindings[node.Name]; ok {
 			return binding.Type
 		}
-	case *BinaryExpr:
+	case *AstBinaryExpr:
 		left := compiler.exprType(node.Left)
 		right := compiler.exprType(node.Right)
 		switch node.Op {
@@ -541,7 +541,7 @@ func (compiler *Compiler) exprType(expr ExprNode) *Type {
 			return Int32Type
 		}
 		return promoteNumericType(left, right)
-	case *CallExpr:
+	case *AstCallExpr:
 		if binding, ok := compiler.symbolBindings[node.Callee]; ok {
 			return binding.Type
 		}
@@ -549,7 +549,7 @@ func (compiler *Compiler) exprType(expr ExprNode) *Type {
 	return nil
 }
 
-func (compiler *Compiler) compileExprAs(expr ExprNode, expected *Type) {
+func (compiler *Compiler) compileExprAs(expr AstExprNode, expected *Type) {
 	if compiler.err != nil {
 		return
 	}
@@ -558,17 +558,17 @@ func (compiler *Compiler) compileExprAs(expr ExprNode, expected *Type) {
 		kind = KindInt32
 	}
 	switch node := expr.(type) {
-	case *NumberLiteral:
+	case *AstNumberLiteral:
 		compiler.emitTyped(OpPush, kind)
 		compiler.code.AppendImmediate(kind, compiler.numberLiteralBits(node, kind))
-	case *StringLiteral:
+	case *AstStringLiteral:
 		if !compiler.canAssignStringLiteral(expected) {
 			compiler.fail(fmt.Errorf("compile error on line %d: string literal is not assignable to %v", node.Line, expected))
 			return
 		}
 		compiler.emitInstruction(makeAddrInstruction(segmentConst))
 		compiler.code.AppendUint32(compiler.internStringLiteral(node.Value))
-	case *IdentNode:
+	case *AstIdentNode:
 		actualKind := kind
 		if actual := compiler.exprType(expr); actual != nil {
 			actualKind = valueKindFromType(actual)
@@ -576,13 +576,13 @@ func (compiler *Compiler) compileExprAs(expr ExprNode, expected *Type) {
 		if actualKind == KindNone {
 			actualKind = KindInt32
 		}
-		node.EmitAddress(&compiler.code, compiler)
+		node.astEmitAddress(&compiler.code, compiler)
 		if compiler.err != nil {
 			return
 		}
 		compiler.emitTyped(OpDereference, actualKind)
 		compiler.emitConvertIfNeeded(actualKind, kind)
-	case *BinaryExpr:
+	case *AstBinaryExpr:
 		if node.Op == "&&" || node.Op == "||" {
 			compiler.compileLogicalExpr(node, kind)
 			return
@@ -614,7 +614,7 @@ func (compiler *Compiler) compileExprAs(expr ExprNode, expected *Type) {
 		default:
 			compiler.fail(fmt.Errorf("compile error on line %d: unsupported binary operator %q", node.Line, node.Op))
 		}
-	case *CallExpr:
+	case *AstCallExpr:
 		binding, ok := compiler.symbolBindings[node.Callee]
 		if !ok || binding.Kind != DeclFunction {
 			compiler.fail(fmt.Errorf("compile error on line %d: unknown function %q", node.Line, node.Callee))
@@ -681,7 +681,7 @@ func (compiler *Compiler) ensureConstSize(size uint32) {
 	compiler.constImage = append(compiler.constImage, make([]byte, int(size-lenu32(compiler.constImage)))...)
 }
 
-func (compiler *Compiler) initializeGlobal(binding SymbolBinding, expr ExprNode, line int) {
+func (compiler *Compiler) initializeGlobal(binding SymbolBinding, expr AstExprNode, line int) {
 	if compiler.err != nil {
 		return
 	}
@@ -731,12 +731,12 @@ func writeGlobalInitializer(segment *MemorySegment, offset uint32, kind ValueKin
 	}
 }
 
-func (compiler *Compiler) globalInitializerBits(target *Type, expr ExprNode, line int) (uint64, error) {
+func (compiler *Compiler) globalInitializerBits(target *Type, expr AstExprNode, line int) (uint64, error) {
 	if target == nil {
 		return 0, fmt.Errorf("compile error on line %d: global initializer target has invalid type", line)
 	}
 	switch node := expr.(type) {
-	case *NumberLiteral:
+	case *AstNumberLiteral:
 		if target.Kind == TypePointer {
 			if node.IsFloat || node.IntValue != 0 {
 				return 0, fmt.Errorf("compile error on line %d: pointer global initializer must be a string literal or 0", line)
@@ -748,7 +748,7 @@ func (compiler *Compiler) globalInitializerBits(target *Type, expr ExprNode, lin
 			return 0, fmt.Errorf("compile error on line %d: unsupported global initializer type %v", line, target)
 		}
 		return compiler.numberLiteralBits(node, kind), nil
-	case *StringLiteral:
+	case *AstStringLiteral:
 		if !compiler.canAssignStringLiteral(target) {
 			return 0, fmt.Errorf("compile error on line %d: string literal is not assignable to %v", line, target)
 		}
@@ -758,7 +758,7 @@ func (compiler *Compiler) globalInitializerBits(target *Type, expr ExprNode, lin
 	}
 }
 
-func (compiler *Compiler) compileLogicalExpr(node *BinaryExpr, expectedKind ValueKind) {
+func (compiler *Compiler) compileLogicalExpr(node *AstBinaryExpr, expectedKind ValueKind) {
 	compiler.compileExprAs(node.Left, BoolType)
 	if compiler.err != nil {
 		return
@@ -869,7 +869,7 @@ func promoteNumericType(left *Type, right *Type) *Type {
 	return Int32Type
 }
 
-func (compiler *Compiler) numberLiteralBits(node *NumberLiteral, kind ValueKind) uint64 {
+func (compiler *Compiler) numberLiteralBits(node *AstNumberLiteral, kind ValueKind) uint64 {
 	if node == nil {
 		return 0
 	}
@@ -903,7 +903,7 @@ func (compiler *Compiler) numberLiteralBits(node *NumberLiteral, kind ValueKind)
 	}
 }
 
-func (compiler *Compiler) compileBlock(block *BlockStmt) {
+func (compiler *Compiler) compileBlock(block *AstBlockStmt) {
 	if block == nil {
 		return
 	}
@@ -923,17 +923,17 @@ func (compiler *Compiler) compileBlock(block *BlockStmt) {
 	}
 }
 
-func (compiler *Compiler) compileStmt(stmt StmtNode) {
+func (compiler *Compiler) compileStmt(stmt AstStmtNode) {
 	if compiler.err != nil {
 		return
 	}
 
 	switch node := stmt.(type) {
-	case *BlockStmt:
+	case *AstBlockStmt:
 		compiler.compileBlock(node)
-	case *LocalDeclStmt:
+	case *AstLocalDeclStmt:
 		compiler.compileLocalDecl(node)
-	case *IfStmt:
+	case *AstIfStmt:
 		compiler.compileExprAs(node.Condition, BoolType)
 		jumpPos := compiler.emitOpWithOperand(OpJumpIfFalse, 0)
 		compiler.compileStmt(node.Then)
@@ -945,7 +945,7 @@ func (compiler *Compiler) compileStmt(stmt StmtNode) {
 		compiler.patchOperand(jumpPos, len(compiler.code))
 		compiler.compileStmt(node.Else)
 		compiler.patchOperand(skipElsePos, len(compiler.code))
-	case *WhileStmt:
+	case *AstWhileStmt:
 		loopStart := len(compiler.code)
 		compiler.compileExprAs(node.Condition, BoolType)
 		exitPos := compiler.emitOpWithOperand(OpJumpIfFalse, 0)
@@ -957,7 +957,7 @@ func (compiler *Compiler) compileStmt(stmt StmtNode) {
 		compiler.patchOperand(exitPos, loopEnd)
 		compiler.patchCurrentBreaks(loopEnd)
 		compiler.controlStack = compiler.controlStack[:len(compiler.controlStack)-1]
-	case *ForStmt:
+	case *AstForStmt:
 		if node.Init != nil {
 			compiler.compileStmt(node.Init)
 		}
@@ -982,26 +982,26 @@ func (compiler *Compiler) compileStmt(stmt StmtNode) {
 		}
 		compiler.patchCurrentBreaks(loopEnd)
 		compiler.controlStack = compiler.controlStack[:len(compiler.controlStack)-1]
-	case *SwitchStmt:
+	case *AstSwitchStmt:
 		compiler.compileSwitchStmt(node)
-	case *ReturnStmt:
+	case *AstReturnStmt:
 		if node.Value != nil {
 			compiler.compileExprAs(node.Value, compiler.currentReturnType)
 		}
 		compiler.emit(OpRet)
-	case *ExprStmt:
-		if _, ok := node.Expr.(*CallExpr); !ok {
+	case *AstExprStmt:
+		if _, ok := node.Expr.(*AstCallExpr); !ok {
 			compiler.fail(fmt.Errorf("compile error on line %d: only function call expressions can be used as standalone statements", node.Line))
 			return
 		}
 		compiler.compileExpr(node.Expr)
-	case *AssignStmt:
+	case *AstAssignStmt:
 		if compiler.rejectConstAssignment(node.Target, node.Line) {
 			return
 		}
 		targetType := compiler.exprType(node.Target)
 		compiler.compileExprAs(node.Value, targetType)
-		node.Target.EmitAddress(&compiler.code, compiler)
+		node.Target.astEmitAddress(&compiler.code, compiler)
 		if compiler.err != nil {
 			return
 		}
@@ -1010,7 +1010,7 @@ func (compiler *Compiler) compileStmt(stmt StmtNode) {
 			assignKind = KindInt32
 		}
 		compiler.emitTyped(OpAssign, assignKind)
-	case *BreakStmt:
+	case *AstBreakStmt:
 		if len(compiler.controlStack) == 0 {
 			compiler.fail(fmt.Errorf("compile error on line %d: break used outside loop or switch", node.Line))
 			return
@@ -1018,7 +1018,7 @@ func (compiler *Compiler) compileStmt(stmt StmtNode) {
 		patchPos := compiler.emitOpWithOperand(OpJump, 0)
 		frame := &compiler.controlStack[len(compiler.controlStack)-1]
 		frame.breakPatches = append(frame.breakPatches, patchPos)
-	case *ContinueStmt:
+	case *AstContinueStmt:
 		controlIndex := compiler.findContinueControlIndex()
 		if controlIndex < 0 {
 			compiler.fail(fmt.Errorf("compile error on line %d: continue used outside loop", node.Line))
@@ -1032,7 +1032,7 @@ func (compiler *Compiler) compileStmt(stmt StmtNode) {
 	}
 }
 
-func (compiler *Compiler) compileLocalDecl(node *LocalDeclStmt) {
+func (compiler *Compiler) compileLocalDecl(node *AstLocalDeclStmt) {
 	if node == nil || compiler.err != nil {
 		return
 	}
@@ -1041,8 +1041,8 @@ func (compiler *Compiler) compileLocalDecl(node *LocalDeclStmt) {
 		return
 	}
 	compiler.compileExprAs(node.Initializer, node.Type)
-	ident := &IdentNode{Name: node.Name, Line: node.Line}
-	ident.EmitAddress(&compiler.code, compiler)
+	ident := &AstIdentNode{Name: node.Name, Line: node.Line}
+	ident.astEmitAddress(&compiler.code, compiler)
 	if compiler.err != nil {
 		return
 	}
@@ -1078,8 +1078,8 @@ func (compiler *Compiler) allocateLocal(name string, typ *Type, line int) {
 	compiler.localSlotCount++
 }
 
-func (compiler *Compiler) rejectConstAssignment(target LvalueNode, line int) bool {
-	ident, ok := target.(*IdentNode)
+func (compiler *Compiler) rejectConstAssignment(target AstLvalueNode, line int) bool {
+	ident, ok := target.(*AstIdentNode)
 	if !ok {
 		return false
 	}
@@ -1139,7 +1139,7 @@ func (compiler *Compiler) emitComparison(op string, kind ValueKind) {
 	}
 
 }
-func (compiler *Compiler) compileSwitchStmt(node *SwitchStmt) {
+func (compiler *Compiler) compileSwitchStmt(node *AstSwitchStmt) {
 	if node == nil {
 		return
 	}
@@ -1219,11 +1219,11 @@ func (compiler *Compiler) patchCurrentContinues(target int) {
 	}
 }
 
-func (compiler *Compiler) compileExpr(expr ExprNode) {
+func (compiler *Compiler) compileExpr(expr AstExprNode) {
 	compiler.compileExprAs(expr, compiler.exprType(expr))
 }
 
-func (node *IdentNode) EmitAddress(code *CodeMemory, compiler *Compiler) {
+func (node *AstIdentNode) astEmitAddress(code *CodeMemory, compiler *Compiler) {
 	if slot, ok := compiler.localSlots[node.Name]; ok {
 		code.AppendInstruction(makeAddrInstruction(segmentFrame))
 		code.AppendUint32(slot)

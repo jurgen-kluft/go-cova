@@ -224,6 +224,7 @@ const (
 	OpCall
 	OpCallExtern
 	OpRet
+	OpcodeCount
 )
 
 type ArithmeticOp byte
