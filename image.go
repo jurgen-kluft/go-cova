@@ -247,9 +247,9 @@ func linkedProgramFromImage(image *ProgramImage) (*LinkedProgram, VMStatus) {
 		Functions:     functions,
 		ParamKinds:    paramKinds,
 		ParamOffsets:  append([]uint32(nil), image.ParamOffsets...),
-		ConstByteSize: lenu32(image.ConstData),
+		ConstByteSize: lenU32(image.ConstData),
 		ConstData:     image.ConstData,
-		DataByteSize:  lenu32(image.DataData),
+		DataByteSize:  lenU32(image.DataData),
 		DataData:      image.DataData,
 		BSSByteSize:   image.BSSByteSize,
 	}

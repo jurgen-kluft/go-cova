@@ -3,7 +3,6 @@ package cova
 import (
 	"fmt"
 	"math"
-	"sort"
 )
 
 type loopLabels struct {
@@ -26,35 +25,45 @@ const (
 	callGraphVisited
 )
 
+type compiledFunctionBlock struct {
+	binding                 SymbolBinding
+	code                    CodeMemory
+	callPatches             []CallPatch
+	jumpOperandPositions    []int
+	usedExternalFunctionIDs []uint32
+}
+
 type Compiler struct {
-	program               *AstProgramNode
-	code                  CodeMemory
-	symbolBindings        map[string]SymbolBinding
-	externSymbols         []SymbolBinding
-	bssSymbols            []SymbolBinding
-	dataSymbols           []SymbolBinding
-	constSymbols          []SymbolBinding
-	functions             []SymbolBinding
-	functionBindingByTemp map[uint32]int
-	localSlots            map[string]uint32
-	localTypes            map[string]*Type
-	currentReturnType     *Type
-	currentFrameByteSize  uint32
-	localSlotCount        uint32
-	maxLocalSlots         uint32
-	maxFrameByteSize      uint32
-	bssByteSize           uint32
-	dataByteSize          uint32
-	entryFunction         uint32
-	hasEntryFunction      bool
-	nextTempFuncID        uint32
-	callPatches           []CallPatch
-	controlStack          []controlFrame
-	localScopeStack       []map[string]struct{}
-	constImage            []byte
-	dataImage             []byte
-	stringLiteralOffsets  map[string]uint32
-	err                   error
+	program                 *AstProgramNode
+	code                    CodeMemory
+	symbolBindings          map[string]SymbolBinding
+	externSymbols           []SymbolBinding
+	bssSymbols              []SymbolBinding
+	dataSymbols             []SymbolBinding
+	constSymbols            []SymbolBinding
+	functions               []SymbolBinding
+	functionBindingByTemp   map[uint32]int
+	localSlots              map[string]uint32
+	localTypes              map[string]*Type
+	currentReturnType       *Type
+	currentFrameByteSize    uint32
+	localSlotCount          uint32
+	maxLocalSlots           uint32
+	maxFrameByteSize        uint32
+	bssByteSize             uint32
+	dataByteSize            uint32
+	entryFunction           uint32
+	hasEntryFunction        bool
+	nextTempFuncID          uint32
+	callPatches             []CallPatch
+	jumpOperandPositions    []int
+	usedExternalFunctionIDs []uint32
+	controlStack            []controlFrame
+	localScopeStack         []map[string]struct{}
+	constImage              []byte
+	dataImage               []byte
+	stringLiteralOffsets    map[string]uint32
+	err                     error
 }
 
 func NewCompiler() *Compiler {
@@ -155,6 +164,8 @@ func (compiler *Compiler) Compile(program *AstProgramNode) (*RelocatableProgram,
 	compiler.hasEntryFunction = false
 	compiler.nextTempFuncID = 0
 	compiler.callPatches = compiler.callPatches[:0]
+	compiler.jumpOperandPositions = compiler.jumpOperandPositions[:0]
+	compiler.usedExternalFunctionIDs = compiler.usedExternalFunctionIDs[:0]
 	compiler.controlStack = compiler.controlStack[:0]
 	compiler.localScopeStack = compiler.localScopeStack[:0]
 	compiler.constImage = compiler.constImage[:0]
@@ -187,13 +198,32 @@ func (compiler *Compiler) Compile(program *AstProgramNode) (*RelocatableProgram,
 			return nil, compiler.err
 		}
 	}
+	if !compiler.hasEntryFunction {
+		return nil, fmt.Errorf("compile error: required entry function %q not found", "script_main")
+	}
+	blocks := make([]compiledFunctionBlock, 0, len(program.Functions))
 	for _, function := range program.Functions {
+		compiler.code = compiler.code[:0]
+		compiler.callPatches = compiler.callPatches[:0]
+		compiler.jumpOperandPositions = compiler.jumpOperandPositions[:0]
+		compiler.usedExternalFunctionIDs = compiler.usedExternalFunctionIDs[:0]
 		compiler.compileFunction(function)
 		if compiler.err != nil {
 			return nil, compiler.err
 		}
+		blocks = append(blocks, compiledFunctionBlock{
+			binding:                 compiler.symbolBindings[function.Name],
+			code:                    compiler.code.Clone(),
+			callPatches:             append([]CallPatch(nil), compiler.callPatches...),
+			jumpOperandPositions:    append([]int(nil), compiler.jumpOperandPositions...),
+			usedExternalFunctionIDs: append([]uint32(nil), compiler.usedExternalFunctionIDs...),
+		})
 	}
-	if err := compiler.validateScriptCallGraph(); err != nil {
+	reachableFunctions, err := compiler.reachableFunctionIDs(blocks)
+	if err != nil {
+		return nil, err
+	}
+	if err := compiler.assembleFunctionBlocks(blocks, reachableFunctions); err != nil {
 		return nil, err
 	}
 
@@ -216,98 +246,129 @@ func (compiler *Compiler) Compile(program *AstProgramNode) (*RelocatableProgram,
 	}
 
 	compiled := &RelocatableProgram{
-		Text:           compiler.code.Clone(),
-		ProgramSymbols: programSymbols,
-		Functions:      append([]SymbolBinding(nil), compiler.functions...),
-		CallPatches:    append([]CallPatch(nil), compiler.callPatches...),
-		EntryFunction:  compiler.entryFunction,
-		FrameSize:      compiler.maxLocalSlots,
-		FrameByteSize:  compiler.maxFrameByteSize,
-		ConstByteSize:  lenu32(compiler.constImage),
-		ConstData:      append([]byte(nil), compiler.constImage...),
-		DataByteSize:   compiler.dataByteSize,
-		DataData:       append([]byte(nil), compiler.dataImage...),
-		BSSSize:        lenu32(compiler.bssSymbols),
-		BSSByteSize:    compiler.bssByteSize,
+		Text:                    compiler.code.Clone(),
+		ProgramSymbols:          programSymbols,
+		Functions:               append([]SymbolBinding(nil), compiler.functions...),
+		CallPatches:             append([]CallPatch(nil), compiler.callPatches...),
+		UsedExternalFunctionIDs: append([]uint32(nil), compiler.usedExternalFunctionIDs...),
+		EntryFunction:           compiler.entryFunction,
+		FrameSize:               compiler.maxLocalSlots,
+		FrameByteSize:           compiler.maxFrameByteSize,
+		ConstByteSize:           lenU32(compiler.constImage),
+		ConstData:               append([]byte(nil), compiler.constImage...),
+		DataByteSize:            compiler.dataByteSize,
+		DataData:                append([]byte(nil), compiler.dataImage...),
+		BSSSize:                 lenU32(compiler.bssSymbols),
+		BSSByteSize:             compiler.bssByteSize,
 	}
 	return compiled, nil
 }
 
-func (compiler *Compiler) validateScriptCallGraph() error {
-	if !compiler.hasEntryFunction {
-		return fmt.Errorf("compile error: entry function not set")
+func (compiler *Compiler) reachableFunctionIDs(blocks []compiledFunctionBlock) (map[uint32]struct{}, error) {
+	blocksByID := make(map[uint32]compiledFunctionBlock, len(blocks))
+	for _, block := range blocks {
+		blocksByID[block.binding.TempFuncID] = block
 	}
-	functionByTemp := make(map[uint32]SymbolBinding, len(compiler.functions))
-	for _, binding := range compiler.functions {
-		functionByTemp[binding.TempFuncID] = binding
-	}
-	callGraph, err := compiler.buildScriptCallGraph(functionByTemp)
-	if err != nil {
-		return err
-	}
-	states := make(map[uint32]callGraphState, len(callGraph))
+	reachable := make(map[uint32]struct{}, len(blocks))
+	states := make(map[uint32]callGraphState, len(blocks))
 	var visit func(tempFuncID uint32) error
 	visit = func(tempFuncID uint32) error {
 		switch states[tempFuncID] {
 		case callGraphVisited:
 			return nil
 		case callGraphVisiting:
-			binding := functionByTemp[tempFuncID]
-			return fmt.Errorf("compile error: recursive script call cycle detected at function %q", binding.Name)
+			return fmt.Errorf("compile error: recursive script call cycle detected at function %q", blocksByID[tempFuncID].binding.Name)
 		}
-		if _, ok := functionByTemp[tempFuncID]; !ok {
+		block, ok := blocksByID[tempFuncID]
+		if !ok {
 			return fmt.Errorf("compile error: unknown script function id %d", tempFuncID)
 		}
+		reachable[tempFuncID] = struct{}{}
 		states[tempFuncID] = callGraphVisiting
-		for _, calleeID := range callGraph[tempFuncID] {
-			if err := visit(calleeID); err != nil {
+		for _, patch := range block.callPatches {
+			if err := visit(patch.TempFuncID); err != nil {
 				return err
 			}
 		}
 		states[tempFuncID] = callGraphVisited
 		return nil
 	}
-	return visit(compiler.entryFunction)
+	if err := visit(compiler.entryFunction); err != nil {
+		return nil, err
+	}
+	return reachable, nil
 }
 
-func (compiler *Compiler) buildScriptCallGraph(functionByTemp map[uint32]SymbolBinding) (map[uint32][]uint32, error) {
-	ordered := make([]SymbolBinding, 0, len(compiler.functions))
+func (compiler *Compiler) assembleFunctionBlocks(blocks []compiledFunctionBlock, reachable map[uint32]struct{}) error {
+	finalCode := make(CodeMemory, 0, 8192)
+	finalPatches := make([]CallPatch, 0)
+	usedExternalIDs := make([]uint32, 0)
+	usedExternalSet := make(map[uint32]struct{})
+	externalFunctions := make([]SymbolBinding, 0)
 	for _, binding := range compiler.functions {
-		if binding.Scope == ScopeBSS {
-			ordered = append(ordered, binding)
+		if binding.Scope == ScopeExtern {
+			externalFunctions = append(externalFunctions, binding)
 		}
 	}
-	sort.Slice(ordered, func(index int, other int) bool {
-		return ordered[index].ScriptAddress < ordered[other].ScriptAddress
-	})
-	callGraph := make(map[uint32][]uint32, len(ordered))
-	for _, binding := range ordered {
-		callGraph[binding.TempFuncID] = nil
-	}
-	for _, patch := range compiler.callPatches {
-		var callerID uint32
-		callerFound := false
-		for index, binding := range ordered {
-			start := int(binding.ScriptAddress)
-			end := len(compiler.code)
-			if index+1 < len(ordered) {
-				end = int(ordered[index+1].ScriptAddress)
+	retainedFunctions := make([]SymbolBinding, 0, len(externalFunctions)+len(blocks))
+	retainedFunctions = append(retainedFunctions, externalFunctions...)
+	compiler.maxLocalSlots = 0
+	compiler.maxFrameByteSize = 0
+
+	for _, block := range blocks {
+		if _, keep := reachable[block.binding.TempFuncID]; !keep {
+			continue
+		}
+		base := len(finalCode)
+		baseU32, ok := imageUint32FromInt(base)
+		if !ok {
+			return fmt.Errorf("compile error: function %q code address %d exceeds uint32", block.binding.Name, base)
+		}
+		code := block.code.Clone()
+		for _, operandPos := range block.jumpOperandPositions {
+			if operandPos < 0 || operandPos+4 > len(code) {
+				return fmt.Errorf("compile error: function %q has invalid jump operand position %d", block.binding.Name, operandPos)
 			}
-			if patch.OperandPos >= start && patch.OperandPos < end {
-				callerID = binding.TempFuncID
-				callerFound = true
-				break
+			ip := uint32(operandPos)
+			target := code.ReadUint32(&ip)
+			if uint64(target)+uint64(baseU32) > uint64(^uint32(0)) {
+				return fmt.Errorf("compile error: function %q jump target exceeds uint32", block.binding.Name)
 			}
+			code.PatchUint32(operandPos, target+baseU32)
 		}
-		if !callerFound {
-			return nil, fmt.Errorf("compile error on line %d: unable to resolve caller for script call patch", patch.Line)
+		for _, patch := range block.callPatches {
+			patch.OperandPos += base
+			finalPatches = append(finalPatches, patch)
 		}
-		if _, ok := functionByTemp[patch.TempFuncID]; !ok {
-			return nil, fmt.Errorf("compile error on line %d: unknown callee id %d", patch.Line, patch.TempFuncID)
+		finalCode = append(finalCode, code...)
+		binding := block.binding
+		binding.ScriptAddress = baseU32
+		compiler.symbolBindings[binding.Name] = binding
+		retainedFunctions = append(retainedFunctions, binding)
+		if binding.FrameSlotCount > compiler.maxLocalSlots {
+			compiler.maxLocalSlots = binding.FrameSlotCount
 		}
-		callGraph[callerID] = append(callGraph[callerID], patch.TempFuncID)
+		if binding.FrameByteSize > compiler.maxFrameByteSize {
+			compiler.maxFrameByteSize = binding.FrameByteSize
+		}
+		for _, tempFuncID := range block.usedExternalFunctionIDs {
+			if _, seen := usedExternalSet[tempFuncID]; seen {
+				continue
+			}
+			usedExternalSet[tempFuncID] = struct{}{}
+			usedExternalIDs = append(usedExternalIDs, tempFuncID)
+		}
 	}
-	return callGraph, nil
+
+	compiler.code = finalCode
+	compiler.callPatches = finalPatches
+	compiler.usedExternalFunctionIDs = usedExternalIDs
+	compiler.functions = retainedFunctions
+	compiler.functionBindingByTemp = make(map[uint32]int, len(retainedFunctions))
+	for index, binding := range retainedFunctions {
+		compiler.functionBindingByTemp[binding.TempFuncID] = index
+	}
+	return nil
 }
 
 func (compiler *Compiler) registerTopLevelDecl(decl *AstTopLevelDeclNode) {
@@ -326,7 +387,7 @@ func (compiler *Compiler) registerTopLevelDecl(decl *AstTopLevelDeclNode) {
 		Type:          decl.Type,
 		ByteSize:      uint32(decl.Type.Size),
 		ByteAlignment: uint32(decl.Type.Alignment()),
-		ParamCount:    lenu32(decl.Params),
+		ParamCount:    lenU32(decl.Params),
 		ParamTypes:    parameterTypes(decl.Params),
 	}
 
@@ -344,20 +405,20 @@ func (compiler *Compiler) registerTopLevelDecl(decl *AstTopLevelDeclNode) {
 			compiler.externSymbols = append(compiler.externSymbols, binding)
 		case ScopeBSS:
 			byteOffsetU32 := alignUpU32(compiler.bssByteSize, binding.ByteAlignment)
-			binding.SlotIndex = lenu32(compiler.bssSymbols)
+			binding.SlotIndex = lenU32(compiler.bssSymbols)
 			binding.ByteOffset = byteOffsetU32
 			compiler.bssByteSize = byteOffsetU32 + binding.ByteSize
 			compiler.bssSymbols = append(compiler.bssSymbols, binding)
 		case ScopeData:
 			byteOffsetU32 := alignUpU32(compiler.dataByteSize, binding.ByteAlignment)
-			binding.SlotIndex = lenu32(compiler.dataSymbols)
+			binding.SlotIndex = lenU32(compiler.dataSymbols)
 			binding.ByteOffset = byteOffsetU32
 			compiler.dataByteSize = byteOffsetU32 + binding.ByteSize
 			compiler.ensureDataSize(compiler.dataByteSize)
 			compiler.dataSymbols = append(compiler.dataSymbols, binding)
 		case ScopeConst:
-			byteOffsetU32 := alignUpU32(lenu32(compiler.constImage), binding.ByteAlignment)
-			binding.SlotIndex = lenu32(compiler.constSymbols)
+			byteOffsetU32 := alignUpU32(lenU32(compiler.constImage), binding.ByteAlignment)
+			binding.SlotIndex = lenU32(compiler.constSymbols)
 			binding.ByteOffset = byteOffsetU32
 			compiler.ensureConstSize(byteOffsetU32 + binding.ByteSize)
 			compiler.constSymbols = append(compiler.constSymbols, binding)
@@ -401,16 +462,13 @@ func (compiler *Compiler) registerScriptFunction(function *AstFunctionNode) {
 		Type:          function.ReturnType,
 		ByteSize:      uint32(function.ReturnType.Size),
 		ByteAlignment: uint32(function.ReturnType.Alignment()),
-		ParamCount:    lenu32(function.Params),
+		ParamCount:    lenU32(function.Params),
 		ParamTypes:    parameterTypes(function.Params),
 		TempFuncID:    compiler.allocateTempFuncID(),
 	}
 	compiler.trackFunctionBinding(binding)
 	compiler.symbolBindings[function.Name] = binding
 	if function.Name == "script_main" {
-		compiler.entryFunction = binding.TempFuncID
-		compiler.hasEntryFunction = true
-	} else if !compiler.hasEntryFunction {
 		compiler.entryFunction = binding.TempFuncID
 		compiler.hasEntryFunction = true
 	}
@@ -620,7 +678,7 @@ func (compiler *Compiler) compileExprAs(expr AstExprNode, expected *Type) {
 			compiler.fail(fmt.Errorf("compile error on line %d: unknown function %q", node.Line, node.Callee))
 			return
 		}
-		if lenu32(node.Args) != binding.ParamCount {
+		if lenU32(node.Args) != binding.ParamCount {
 			compiler.fail(fmt.Errorf("compile error on line %d: function %q expects %d arguments, got %d", node.Line, node.Callee, binding.ParamCount, len(node.Args)))
 			return
 		}
@@ -636,6 +694,7 @@ func (compiler *Compiler) compileExprAs(expr AstExprNode, expected *Type) {
 		}
 		if binding.Scope == ScopeExtern {
 			compiler.emitOpWithOperand(OpCallExtern, binding.SlotIndex)
+			compiler.usedExternalFunctionIDs = append(compiler.usedExternalFunctionIDs, binding.TempFuncID)
 		} else {
 			operandPos := compiler.emitOpWithOperand(OpCall, binding.TempFuncID)
 			compiler.callPatches = append(compiler.callPatches, CallPatch{OperandPos: operandPos, TempFuncID: binding.TempFuncID, Line: node.Line})
@@ -660,7 +719,7 @@ func (compiler *Compiler) internStringLiteral(value string) uint32 {
 	if offset, ok := compiler.stringLiteralOffsets[value]; ok {
 		return offset
 	}
-	offset := lenu32(compiler.constImage)
+	offset := lenU32(compiler.constImage)
 	compiler.constImage = append(compiler.constImage, []byte(value)...)
 	compiler.constImage = append(compiler.constImage, 0)
 	compiler.stringLiteralOffsets[value] = offset
@@ -668,17 +727,17 @@ func (compiler *Compiler) internStringLiteral(value string) uint32 {
 }
 
 func (compiler *Compiler) ensureDataSize(size uint32) {
-	if size <= lenu32(compiler.dataImage) {
+	if size <= lenU32(compiler.dataImage) {
 		return
 	}
-	compiler.dataImage = append(compiler.dataImage, make([]byte, int(size-lenu32(compiler.dataImage)))...)
+	compiler.dataImage = append(compiler.dataImage, make([]byte, int(size-lenU32(compiler.dataImage)))...)
 }
 
 func (compiler *Compiler) ensureConstSize(size uint32) {
-	if size <= lenu32(compiler.constImage) {
+	if size <= lenU32(compiler.constImage) {
 		return
 	}
-	compiler.constImage = append(compiler.constImage, make([]byte, int(size-lenu32(compiler.constImage)))...)
+	compiler.constImage = append(compiler.constImage, make([]byte, int(size-lenU32(compiler.constImage)))...)
 }
 
 func (compiler *Compiler) initializeGlobal(binding SymbolBinding, expr AstExprNode, line int) {
@@ -1269,6 +1328,9 @@ func (compiler *Compiler) emitOpWithOperand(op Opcode, operand uint32) int {
 	compiler.emit(op)
 	position := len(compiler.code)
 	compiler.code.AppendUint32(operand)
+	if op == OpJump || op == OpJumpIfFalse {
+		compiler.jumpOperandPositions = append(compiler.jumpOperandPositions, position)
+	}
 	return position
 }
 

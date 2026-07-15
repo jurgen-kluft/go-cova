@@ -14,7 +14,7 @@ func NewLinker(variableCapacity, functionCapacity int) *Linker {
 	return &Linker{VariableCapacity: variableCapacity, FunctionCapacity: functionCapacity}
 }
 
-// PrintCompilationReport writes a size and symbol overview for a successfully linked program.
+// Report writes a size and symbol overview for a successfully linked program.
 func (linker *Linker) Report(writer io.Writer, compiled *RelocatableProgram, linked *LinkedProgram) error {
 	if linker == nil {
 		return fmt.Errorf("link report error: linker is nil")
@@ -29,10 +29,18 @@ func (linker *Linker) Report(writer io.Writer, compiled *RelocatableProgram, lin
 		return fmt.Errorf("link report error: linked program is nil")
 	}
 
+	usedExternalFunctions := make(map[uint32]struct{}, len(compiled.UsedExternalFunctionIDs))
+	for _, tempFuncID := range compiled.UsedExternalFunctionIDs {
+		usedExternalFunctions[tempFuncID] = struct{}{}
+	}
 	externalFunctions := 0
+	unusedExternalFunctions := make([]string, 0)
 	for _, function := range compiled.Functions {
 		if function.Scope == ScopeExtern {
 			externalFunctions++
+			if _, used := usedExternalFunctions[function.TempFuncID]; !used {
+				unusedExternalFunctions = append(unusedExternalFunctions, function.Name)
+			}
 		}
 	}
 
@@ -51,10 +59,21 @@ func (linker *Linker) Report(writer io.Writer, compiled *RelocatableProgram, lin
 		}
 	}
 
-	_, err := fmt.Fprintf(writer, "Text size: %d bytes\nBSS size: %d bytes\nData size: %d bytes\nConst size: %d bytes\nLocal Functions: %d functions\nExternal Functions: %d functions\nExternal Variables: %d variables, %d bytes\n",
+	_, err := fmt.Fprintf(writer, "Text size: %d bytes\nBSS size: %d bytes\nData size: %d bytes\nConst size: %d bytes\nLocal Functions: %d functions\nExternal Functions: %d functions, %d unused\nExternal Variables: %d variables, %d bytes\n",
 		len(linked.Text), linked.BSSByteSize, linked.DataByteSize, linked.ConstByteSize,
-		len(linked.Functions), externalFunctions, externalVariables, externalByteSize)
-	return err
+		len(linked.Functions), externalFunctions, len(unusedExternalFunctions), externalVariables, externalByteSize)
+	if err != nil || len(unusedExternalFunctions) == 0 {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "Unused External Functions:"); err != nil {
+		return err
+	}
+	for _, name := range unusedExternalFunctions {
+		if _, err := fmt.Fprintf(writer, "  %s\n", name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (linker *Linker) Link(program *AstProgramNode, compiled *RelocatableProgram) (*LinkedProgram, error) {
@@ -96,10 +115,10 @@ func (linker *Linker) Link(program *AstProgramNode, compiled *RelocatableProgram
 				return nil, fmt.Errorf("link error: host-linked function %q requests slot %d, but function capacity is %d", binding.Name, binding.SlotIndex, linker.FunctionCapacity)
 			}
 		case ScopeBSS:
-			if binding.ParamCount != lenu32(binding.ParamTypes) || binding.ParamCount != lenu32(binding.ParamOffsets) {
+			if binding.ParamCount != lenU32(binding.ParamTypes) || binding.ParamCount != lenU32(binding.ParamOffsets) {
 				return nil, fmt.Errorf("link error: function %q has inconsistent parameter metadata", binding.Name)
 			}
-			paramStart := lenu32(paramKinds)
+			paramStart := lenU32(paramKinds)
 			for index, typ := range binding.ParamTypes {
 				kind := valueKindFromType(typ)
 				if kind == KindNone || kind == KindVoid {

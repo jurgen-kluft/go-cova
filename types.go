@@ -396,27 +396,20 @@ type LinkedProgram struct {
 }
 
 type RelocatableProgram struct {
-	Text           CodeMemory
-	ProgramSymbols *ProgramSymbols
-	Functions      []SymbolBinding
-	CallPatches    []CallPatch
-	EntryFunction  uint32
-	FrameSize      uint32
-	FrameByteSize  uint32
-	ConstByteSize  uint32
-	ConstData      []byte
-	DataByteSize   uint32
-	DataData       []byte
-	BSSSize        uint32
-	BSSByteSize    uint32
-}
-
-func alignUp(offset int, alignment int) int {
-	if alignment <= 1 {
-		return offset
-	}
-	mask := alignment - 1
-	return (offset + mask) &^ mask
+	Text                    CodeMemory
+	ProgramSymbols          *ProgramSymbols
+	Functions               []SymbolBinding
+	CallPatches             []CallPatch
+	UsedExternalFunctionIDs []uint32
+	EntryFunction           uint32
+	FrameSize               uint32
+	FrameByteSize           uint32
+	ConstByteSize           uint32
+	ConstData               []byte
+	DataByteSize            uint32
+	DataData                []byte
+	BSSSize                 uint32
+	BSSByteSize             uint32
 }
 
 func alignUpU32(offset uint32, alignment uint32) uint32 {
@@ -427,6 +420,6 @@ func alignUpU32(offset uint32, alignment uint32) uint32 {
 	return (offset + mask) &^ mask
 }
 
-func lenu32[S ~[]E, E any](values S) uint32 {
+func lenU32[S ~[]E, E any](values S) uint32 {
 	return uint32(len(values))
 }

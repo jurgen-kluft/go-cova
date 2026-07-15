@@ -2,69 +2,102 @@ package cova
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
-func TestLinkerPrintCompilationReport(t *testing.T) {
-	compiled := &RelocatableProgram{
-		Functions: []SymbolBinding{
-			{Kind: DeclFunction, Scope: ScopeBSS},
-			{Kind: DeclFunction, Scope: ScopeExtern},
-			{Kind: DeclFunction, Scope: ScopeExtern},
-		},
+func TestLinkerReportListsUnusedExternalFunctions(t *testing.T) {
+	script := `
+extern(0) int used();
+extern(1) int never_used();
+extern(2) int dead_only();
+int dead() { return dead_only(); }
+int script_main() { return used(); }
+`
+	tokens, err := Tokenize(script)
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
 	}
-	linked := &LinkedProgram{
-		Text:          make(CodeMemory, 23),
-		BSSByteSize:   11,
-		DataByteSize:  7,
-		ConstByteSize: 13,
-		Functions: []ScriptFunctionDescriptor{
-			{},
-			{},
-		},
-		DebugSymbols: &ProgramSymbols{
-			ExternSymbols: []SymbolBinding{
-				{Kind: DeclVariable, ByteOffset: 4, ByteSize: 4},
-				{Kind: DeclVariable, ByteOffset: 16, ByteSize: 8},
-				{Kind: DeclFunction, ByteOffset: 100, ByteSize: 20},
-			},
-		},
+	program, err := Parse(tokens)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	compiled, err := NewCompiler().Compile(program)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	linker := NewLinker(0, 3)
+	linked, err := linker.Link(program, compiled)
+	if err != nil {
+		t.Fatalf("Link failed: %v", err)
 	}
 
 	var output bytes.Buffer
-	if err := NewLinker(24, 2).Report(&output, compiled, linked); err != nil {
-		t.Fatalf("PrintCompilationReport failed: %v", err)
+	if err := linker.Report(&output, compiled, linked); err != nil {
+		t.Fatalf("Report failed: %v", err)
 	}
-
-	want := "Text size: 23 bytes\n" +
-		"BSS size: 11 bytes\n" +
-		"Data size: 7 bytes\n" +
-		"Const size: 13 bytes\n" +
-		"Local Functions: 2 functions\n" +
-		"External Functions: 2 functions\n" +
-		"External Variables: 2 variables, 24 bytes\n"
-	if output.String() != want {
-		t.Fatalf("unexpected report:\n%s\nwant:\n%s", output.String(), want)
+	if !strings.Contains(output.String(), "External Functions: 3 functions, 2 unused\n") {
+		t.Fatalf("unexpected external count:\n%s", output.String())
+	}
+	if !strings.Contains(output.String(), "Unused External Functions:\n  never_used\n  dead_only\n") {
+		t.Fatalf("unexpected unused external list:\n%s", output.String())
 	}
 }
 
-func TestLinkerPrintCompilationReportWithoutExternalVariables(t *testing.T) {
-	compiled := &RelocatableProgram{}
-	linked := &LinkedProgram{DebugSymbols: NewProgramSymbols()}
-
-	var output bytes.Buffer
-	if err := NewLinker(0, 0).Report(&output, compiled, linked); err != nil {
-		t.Fatalf("PrintCompilationReport failed: %v", err)
+func TestLinkerReportOmitsUnusedSectionWhenAllExternalsUsed(t *testing.T) {
+	script := `
+extern(0) int first();
+extern(1) int second();
+int script_main() { return first() + second(); }
+`
+	tokens, err := Tokenize(script)
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+	program, err := Parse(tokens)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	compiled, err := NewCompiler().Compile(program)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	linker := NewLinker(0, 2)
+	linked, err := linker.Link(program, compiled)
+	if err != nil {
+		t.Fatalf("Link failed: %v", err)
 	}
 
-	want := "Text size: 0 bytes\n" +
-		"BSS size: 0 bytes\n" +
-		"Data size: 0 bytes\n" +
-		"Const size: 0 bytes\n" +
-		"Local Functions: 0 functions\n" +
-		"External Functions: 0 functions\n" +
-		"External Variables: 0 variables, 0 bytes\n"
-	if output.String() != want {
-		t.Fatalf("unexpected report:\n%s\nwant:\n%s", output.String(), want)
+	var output bytes.Buffer
+	if err := linker.Report(&output, compiled, linked); err != nil {
+		t.Fatalf("Report failed: %v", err)
+	}
+	if !strings.Contains(output.String(), "External Functions: 2 functions, 0 unused\n") {
+		t.Fatalf("unexpected external count:\n%s", output.String())
+	}
+	if strings.Contains(output.String(), "Unused External Functions:") {
+		t.Fatalf("unexpected unused section:\n%s", output.String())
+	}
+}
+
+func TestLinkerStillValidatesUnusedExternalFunctionCapacity(t *testing.T) {
+	script := `
+extern(3) int unused();
+int script_main() { return 1; }
+`
+	tokens, err := Tokenize(script)
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+	program, err := Parse(tokens)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	compiled, err := NewCompiler().Compile(program)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	if _, err := NewLinker(0, 1).Link(program, compiled); err == nil {
+		t.Fatal("expected unused external function capacity error")
 	}
 }

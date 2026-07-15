@@ -226,7 +226,7 @@ int add_one(int value) {
 }
 ```
 
-The preferred entry point is `script_main`. If it is absent, the compiler currently falls back to the first script function it sees.
+The required entry point is `script_main`; compilation fails if it is absent. Every script function body is compiled and validated as an independent bytecode block. Only blocks reachable from `script_main` are assembled into the executable text, preserving their source order.
 
 ### Local variables
 
