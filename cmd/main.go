@@ -45,6 +45,7 @@ void reduce_health(int delta) {
 	linker := cova.NewLinker(len(externMemory), 1)
 	linked, err := linker.Link(program, compiled)
 	check(err)
+	check(linker.Report(os.Stdout, compiled, linked))
 
 	vm := cova.NewVM(256)
 	vm.BindExternBlock(externMemory)
@@ -63,7 +64,6 @@ void reduce_health(int delta) {
 	checkStatus(vm.Run(linked))
 	fmt.Printf("hostPlayerHealth=%d\n", int(int32(binary.LittleEndian.Uint32(externMemory[4:]))))
 }
-
 func check(err error) {
 	if err == nil {
 		return

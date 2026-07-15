@@ -39,6 +39,7 @@ The language currently supports:
 - Script-defined functions
 - Primitive numeric and boolean-like types
 - String literals lowered to pointer values
+- `//` single-line comments
 - Numeric expressions
 - Function calls
 - `if`, `if/else`, `while`, `for`, `switch`, `break`, `continue`, and `return`
@@ -53,6 +54,7 @@ The language does not currently support:
 - Bitwise operators
 - Modulo
 - Usable source-level pointer operations
+- `/* ... */` block comments
 
 ## Compact Grammar
 
@@ -135,6 +137,22 @@ Notes:
 - Pointer type syntax is accepted in declarations and signatures, but source-level pointer operators are not implemented.
 - Boolean conditions are numeric at runtime: `0` is false and non-zero is true.
 
+## Comments
+
+A line comment starts with `//` and continues to the end of the line. It can occupy a whole line or follow source code.
+
+```c
+extern(0) int player_health;
+
+void apply_damage() {
+    // Use the host-provided health value.
+    int health_drop = 5;
+    player_health = player_health - health_drop; // Apply the damage.
+}
+```
+
+Comments are discarded by the lexer and do not produce tokens. `/* ... */` block comments are not supported.
+
 ## Top-Level Declarations
 
 There are two kinds of top-level declarations:
@@ -212,14 +230,27 @@ The preferred entry point is `script_main`. If it is absent, the compiler curren
 
 ### Local variables
 
-Local variables can be declared inside blocks with or without an initializer.
+Local variables use an explicit type and can be declared in any function block. An initializer is optional. A local without an initializer receives the zero value for its type.
 
 ```c
-int count;
+int count;        // Initialized to 0.
 bool ready = true;
 ```
 
-Locals whose top-level type is const cannot be reassigned after their declaration-time initialization.
+Local names are visible from their declaration to the end of the containing block. A nested block may declare a local with the same name, temporarily shadowing the outer local. Declaring the same name twice in one block is rejected.
+
+```c
+int choose_value() {
+    int value = 1;
+    {
+        int value = 2; // Shadows the outer value in this block.
+        value = value + 1;
+    }
+    return value; // Returns 1.
+}
+```
+
+Mutable locals can be assigned after declaration. A local whose top-level type is `const` cannot be assigned after its declaration. If a const local has no initializer, it retains its zero value and cannot be assigned later.
 
 ```c
 const int answer = 42;
@@ -227,13 +258,23 @@ const int answer = 42;
 
 `const uint8*` means a mutable pointer to const bytes, so the pointer can still be reassigned. `uint8* const` means a const pointer to mutable bytes.
 
-Pointer locals can be initialized from string literals only when the pointed-to type is `const uint8`.
+String literals can initialize pointer locals only when the pointed-to type is `const uint8`.
 
 ```c
 const uint8* asset_path = "asset/button_off";
 ```
 
-Locals are block-scoped and are zero-initialized when no initializer is provided.
+Local declarations are not accepted in a `for` initializer. Declare the local before the loop instead.
+
+```c
+int count_to_four() {
+    int index;
+    for (index = 0; index < 4; index = index + 1) {
+        // Use index.
+    }
+    return index;
+}
+```
 
 ## Types
 
@@ -395,7 +436,7 @@ value == 3
 health >= limit
 ```
 
-Comparisons produce an `int32` result using `0` for false and `1` for true.
+Comparisons produce a `bool` result using `false` and `true`.
 
 ### Logical operators
 
@@ -603,20 +644,6 @@ float64 blend(float32 a, float64 b) {
     return a + b;
 }
 ```
-
-### No local declarations yet
-
-This is not currently supported:
-
-```c
-int script_main() {
-    int x;
-    x = 1;
-    return x;
-}
-```
-
-Only parameters and globals currently provide named storage.
 
 ### Recursion is rejected
 

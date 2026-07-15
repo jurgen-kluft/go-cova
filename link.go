@@ -1,6 +1,9 @@
 package cova
 
-import "fmt"
+import (
+	"fmt"
+	"io"
+)
 
 type Linker struct {
 	VariableCapacity int
@@ -9,6 +12,49 @@ type Linker struct {
 
 func NewLinker(variableCapacity, functionCapacity int) *Linker {
 	return &Linker{VariableCapacity: variableCapacity, FunctionCapacity: functionCapacity}
+}
+
+// PrintCompilationReport writes a size and symbol overview for a successfully linked program.
+func (linker *Linker) Report(writer io.Writer, compiled *RelocatableProgram, linked *LinkedProgram) error {
+	if linker == nil {
+		return fmt.Errorf("link report error: linker is nil")
+	}
+	if writer == nil {
+		return fmt.Errorf("link report error: writer is nil")
+	}
+	if compiled == nil {
+		return fmt.Errorf("link report error: compiled program is nil")
+	}
+	if linked == nil {
+		return fmt.Errorf("link report error: linked program is nil")
+	}
+
+	externalFunctions := 0
+	for _, function := range compiled.Functions {
+		if function.Scope == ScopeExtern {
+			externalFunctions++
+		}
+	}
+
+	externalVariables := 0
+	var externalByteSize uint64
+	if linked.DebugSymbols != nil {
+		for _, variable := range linked.DebugSymbols.ExternSymbols {
+			if variable.Kind != DeclVariable {
+				continue
+			}
+			externalVariables++
+			end := uint64(variable.ByteOffset) + uint64(variable.ByteSize)
+			if end > externalByteSize {
+				externalByteSize = end
+			}
+		}
+	}
+
+	_, err := fmt.Fprintf(writer, "Text size: %d bytes\nBSS size: %d bytes\nData size: %d bytes\nConst size: %d bytes\nLocal Functions: %d functions\nExternal Functions: %d functions\nExternal Variables: %d variables, %d bytes\n",
+		len(linked.Text), linked.BSSByteSize, linked.DataByteSize, linked.ConstByteSize,
+		len(linked.Functions), externalFunctions, externalVariables, externalByteSize)
+	return err
 }
 
 func (linker *Linker) Link(program *AstProgramNode, compiled *RelocatableProgram) (*LinkedProgram, error) {

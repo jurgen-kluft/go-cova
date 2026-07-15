@@ -8,17 +8,19 @@ The language is designed for small host-integrated scripts that work with primit
 
 - Primitive types: `bool`, `byte`, `int`/`int32`, `int8`, `int16`, `int64`, `uint8`, `uint16`, `uint32`, `uint64`, `float32`, `float64`
 - Top-level globals
-- Local variables inside function blocks
+- Typed, block-scoped local variables inside functions
 - Script functions with typed parameters and returns
 - `extern(offset)` variables backed by host memory
 - `extern(slot)` functions dispatched by the host
 - String literals passed as pointer values
+- `//` single-line comments
 - Expressions using `true`, `false`, `+`, `-`, `*`, `/`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`
 - Control flow: `if`, `if/else`, `while`, `for`, `switch`, `break`, `continue`, `return`
 
 ## Current Limits
 
 - No local declarations in `for` initializers
+- No `/* ... */` block comments
 - Standalone expression statements must be function calls
 - No arrays, structs, or field access
 - No unary operators such as `-x`, `!x`, `*ptr`, or `&x`
