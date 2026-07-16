@@ -1,5 +1,5 @@
-#ifndef __COVA_BYTE_ORDER_H__
-#define __COVA_BYTE_ORDER_H__
+#ifndef __CCOVA_BYTE_ORDER_H__
+#define __CCOVA_BYTE_ORDER_H__
 
 #include "ccore/c_debug.h"
 
@@ -51,6 +51,6 @@ namespace ncore
         data[6] = (byte)((value >> 48) & 0xffULL);
         data[7] = (byte)((value >> 56) & 0xffULL);
     }
-}
+} // namespace ncore
 
 #endif

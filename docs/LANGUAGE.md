@@ -1,8 +1,8 @@
 # Cova Script Language
 
-This document describes the scripting language currently supported by `go-cova`.
+This document describes the scripting language currently supported by `ccova`.
 
-The language is a small, typed, C-like scripting language intended to compile into bytecode and run inside the `go-cova` VM. It supports primitive numeric types, global variables, functions, control flow, and host interop through `extern` declarations.
+The language is a small, typed, C-like scripting language intended to compile into bytecode and run inside the `ccova` VM. It supports primitive numeric types, global variables, functions, control flow, and host interop through `extern` declarations.
 
 ## Example
 

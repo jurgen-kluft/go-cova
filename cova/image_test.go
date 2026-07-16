@@ -2,6 +2,7 @@ package cova
 
 import (
 	"bytes"
+	"encoding/binary"
 	"reflect"
 	"testing"
 )
@@ -54,6 +55,23 @@ int script_main() {
 	}
 	if image.BSSByteSize != linked.BSSByteSize {
 		t.Fatalf("bss size = %d, want %d", image.BSSByteSize, linked.BSSByteSize)
+	}
+	if image.FrameSize != linked.FrameSize || image.FrameByteSize != linked.FrameByteSize {
+		t.Fatalf("frame metadata = (%d, %d), want (%d, %d)", image.FrameSize, image.FrameByteSize, linked.FrameSize, linked.FrameByteSize)
+	}
+	if len(imageA) < ProgramImageHeaderSize {
+		t.Fatalf("image size = %d, want at least %d", len(imageA), ProgramImageHeaderSize)
+	}
+	if got := binary.LittleEndian.Uint32(imageA[16:20]); got != linked.FrameSize {
+		t.Fatalf("serialized frame size = %d, want %d", got, linked.FrameSize)
+	}
+	if got := binary.LittleEndian.Uint32(imageA[20:24]); got != linked.FrameByteSize {
+		t.Fatalf("serialized frame byte size = %d, want %d", got, linked.FrameByteSize)
+	}
+	functionDisplacement := int32(binary.LittleEndian.Uint32(imageA[28:32]))
+	functionOffset := int64(28) + int64(functionDisplacement)
+	if functionDisplacement == 0 || functionOffset < ProgramImageHeaderSize || functionOffset >= int64(len(imageA)) {
+		t.Fatalf("invalid relative functions pointer: displacement=%d target=%d", functionDisplacement, functionOffset)
 	}
 	if !bytes.Equal(image.Text, linked.Text) {
 		t.Fatal("text view mismatch")

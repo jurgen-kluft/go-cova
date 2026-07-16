@@ -8,13 +8,14 @@ import (
 
 const (
 	ProgramImageMagic               = uint32('C') | uint32('O')<<8 | uint32('V')<<16 | uint32('A')<<24
-	ProgramImageVersion      uint16 = 2
+	ProgramImageVersion      uint16 = 3
 	ProgramImageEndianLittle uint8  = 1
 	ProgramImageABI          uint8  = 1
 
 	ProgramImageStringHeaderSize = 8
 	ProgramImageArrayHeaderSize  = 8
 	ProgramImageFunctionSize     = 20
+	ProgramImageHeaderSize       = 72
 )
 
 type ProgramImageValueKind uint8
@@ -22,12 +23,12 @@ type ProgramImageValueKind uint8
 type ProgramImageStringHeader struct {
 	ByteLen uint16
 	RuneLen uint16
-	DataOff uint32
+	DataOff int32
 }
 
 type ProgramImageArrayHeader struct {
 	Len     uint32
-	DataOff uint32
+	DataOff int32
 }
 
 type ProgramImageFunction struct {
@@ -42,18 +43,20 @@ type ProgramImageFunction struct {
 }
 
 type ProgramImage struct {
-	Magic        uint32
-	Version      uint16
-	Endian       uint8
-	ABI          uint8
-	EntryPoint   uint32
-	BSSByteSize  uint32
-	Functions    []ProgramImageFunction
-	ParamKinds   []ProgramImageValueKind
-	ParamOffsets []uint32
-	Text         []byte
-	ConstData    []byte
-	DataData     []byte
+	Magic         uint32
+	Version       uint16
+	Endian        uint8
+	ABI           uint8
+	EntryPoint    uint32
+	BSSByteSize   uint32
+	FrameSize     uint32
+	FrameByteSize uint32
+	Functions     []ProgramImageFunction
+	ParamKinds    []ProgramImageValueKind
+	ParamOffsets  []uint32
+	Text          []byte
+	ConstData     []byte
+	DataData      []byte
 }
 
 func BuildProgramImage(program *LinkedProgram) ([]byte, VMStatus) {
@@ -140,6 +143,12 @@ func validateProgramImage(image *ProgramImage) VMStatus {
 		if function.ParamCount > uint32(len(image.ParamKinds))-function.ParamStart {
 			return VMStatusInvalidParameter
 		}
+		if function.ParamStart+function.ParamCount > image.FrameSize {
+			return VMStatusInvalidParameter
+		}
+		if function.FrameByteSize > image.FrameByteSize {
+			return VMStatusInvalidDescriptor
+		}
 		_ = index
 	}
 	return VMStatusOK
@@ -175,18 +184,20 @@ func linkedProgramToImage(program *LinkedProgram) (*ProgramImage, VMStatus) {
 		return nil, status
 	}
 	image := &ProgramImage{
-		Magic:        ProgramImageMagic,
-		Version:      ProgramImageVersion,
-		Endian:       ProgramImageEndianLittle,
-		ABI:          ProgramImageABI,
-		EntryPoint:   entryPoint,
-		BSSByteSize:  bssByteSize,
-		Functions:    functions,
-		ParamKinds:   paramKinds,
-		ParamOffsets: append([]uint32(nil), program.ParamOffsets...),
-		Text:         append([]byte(nil), program.Text...),
-		ConstData:    append([]byte(nil), program.ConstData...),
-		DataData:     append([]byte(nil), program.DataData...),
+		Magic:         ProgramImageMagic,
+		Version:       ProgramImageVersion,
+		Endian:        ProgramImageEndianLittle,
+		ABI:           ProgramImageABI,
+		EntryPoint:    entryPoint,
+		BSSByteSize:   bssByteSize,
+		FrameSize:     program.FrameSize,
+		FrameByteSize: program.FrameByteSize,
+		Functions:     functions,
+		ParamKinds:    paramKinds,
+		ParamOffsets:  append([]uint32(nil), program.ParamOffsets...),
+		Text:          append([]byte(nil), program.Text...),
+		ConstData:     append([]byte(nil), program.ConstData...),
+		DataData:      append([]byte(nil), program.DataData...),
 	}
 	if status := validateProgramImage(image); status != VMStatusOK {
 		return nil, status
@@ -252,14 +263,8 @@ func linkedProgramFromImage(image *ProgramImage) (*LinkedProgram, VMStatus) {
 		DataByteSize:  lenU32(image.DataData),
 		DataData:      image.DataData,
 		BSSByteSize:   image.BSSByteSize,
-	}
-	for _, function := range functions {
-		if end := function.ParamStart + function.ParamCount; end > program.FrameSize {
-			program.FrameSize = end
-		}
-		if function.FrameByteSize > program.FrameByteSize {
-			program.FrameByteSize = function.FrameByteSize
-		}
+		FrameSize:     image.FrameSize,
+		FrameByteSize: image.FrameByteSize,
 	}
 	return program, VMStatusOK
 }

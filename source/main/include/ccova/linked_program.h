@@ -1,14 +1,50 @@
-#ifndef __COVA_LINKED_PROGRAM_H__
-#define __COVA_LINKED_PROGRAM_H__
+#ifndef __CCOVA_LINKED_PROGRAM_H__
+#define __CCOVA_LINKED_PROGRAM_H__
 
-#include "ccova/code_memory.h"
+#include "ccore/c_debug.h"
+#include "ccova/types.h"
 
 namespace ncore
 {
-    template <typename T> struct array_view_t
+    template <typename T> struct relative_ptr_t
     {
-        const T* m_data;
-        u32      m_size;
+        s32 m_offset;
+
+        inline const T* get() const { return m_offset == 0 ? nullptr : (const T*)((const byte*)this + m_offset); }
+        inline const T& operator[](u32 index) const { return get()[index]; }
+
+        void set(const T* data)
+        {
+            if (data == nullptr)
+            {
+                m_offset = 0;
+                return;
+            }
+            const s64 offset = (s64)data - (s64)this;
+            ASSERT(offset >= (-2147483647LL - 1LL) && offset <= 2147483647LL);
+            ASSERT(offset != 0);
+            m_offset = (s32)offset;
+        }
+    };
+
+    template <typename T> struct relative_array_t
+    {
+        u32               m_size;
+        relative_ptr_t<T> m_data;
+
+        inline const T* data() const { return m_data.get(); }
+        inline const T& operator[](u32 index) const
+        {
+            ASSERT(index < m_size);
+            return m_data[index];
+        }
+
+        void set(const T* data, u32 size)
+        {
+            ASSERT(data != nullptr || size == 0);
+            m_size = size;
+            m_data.set(data);
+        }
     };
 
     struct script_function_t
@@ -22,19 +58,28 @@ namespace ncore
 
     struct linked_program_t
     {
-        code_memory_t                 m_text;
-        u32                           m_entry_point;
-        array_view_t<script_function_t> m_functions;
-        array_view_t<evaluekind_t>      m_param_kinds;
-        array_view_t<u32>               m_param_offsets;
-        u32                           m_frame_size;
-        u32                           m_frame_byte_size;
-        array_view_t<byte>              m_const_data;
-        array_view_t<byte>              m_data_data;
-        u32                           m_bss_byte_size;
+        u32                                 m_magic;
+        u16                                 m_version;
+        u8                                  m_endian;
+        u8                                  m_abi;
+        u32                                 m_entry_point;
+        u32                                 m_bss_byte_size;
+        u32                                 m_frame_size;
+        u32                                 m_frame_byte_size;
+        relative_array_t<script_function_t> m_functions;
+        relative_array_t<evaluekind_t>      m_param_kinds;
+        relative_array_t<u32>               m_param_offsets;
+        relative_array_t<byte>              m_text;
+        relative_array_t<byte>              m_const_data;
+        relative_array_t<byte>              m_data_data;
     };
 
     void validate_linked_program(const linked_program_t* program);
-}
+    void validate_linked_program(const linked_program_t* program, u32 block_size);
+
+    ASSERTCTS(sizeof(relative_ptr_t<byte>) == 4, "relative pointer ABI must be 32-bit");
+    ASSERTCTS(sizeof(relative_array_t<byte>) == 8, "relative array ABI must be 8 bytes");
+    ASSERTCTS(sizeof(linked_program_t) == 72, "linked program must match the image root ABI");
+} // namespace ncore
 
 #endif

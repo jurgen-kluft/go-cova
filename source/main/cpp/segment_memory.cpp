@@ -51,30 +51,78 @@ namespace ncore
         }
     }
 
-    u8 read_u8(const segment_memory_t* memory, u32 offset) { assert_range(memory, offset, 1); return memory->m_data[offset]; }
-    u16 read_u16(const segment_memory_t* memory, u32 offset) { assert_range(memory, offset, 2); return read_le_u16(memory->m_data + offset); }
-    u32 read_u32(const segment_memory_t* memory, u32 offset) { assert_range(memory, offset, 4); return read_le_u32(memory->m_data + offset); }
-    u64 read_u64(const segment_memory_t* memory, u32 offset) { assert_range(memory, offset, 8); return read_le_u64(memory->m_data + offset); }
+    u8 read_u8(const segment_memory_t* memory, u32 offset)
+    {
+        assert_range(memory, offset, 1);
+        return memory->m_data[offset];
+    }
+    u16 read_u16(const segment_memory_t* memory, u32 offset)
+    {
+        assert_range(memory, offset, 2);
+        return read_le_u16(memory->m_data + offset);
+    }
+    u32 read_u32(const segment_memory_t* memory, u32 offset)
+    {
+        assert_range(memory, offset, 4);
+        return read_le_u32(memory->m_data + offset);
+    }
+    u64 read_u64(const segment_memory_t* memory, u32 offset)
+    {
+        assert_range(memory, offset, 8);
+        return read_le_u64(memory->m_data + offset);
+    }
 
-    void write_u8(segment_memory_t* memory, u32 offset, u8 value) { assert_range(memory, offset, 1); memory->m_data[offset] = value; }
-    void write_u16(segment_memory_t* memory, u32 offset, u16 value) { assert_range(memory, offset, 2); write_le_u16(memory->m_data + offset, value); }
-    void write_u32(segment_memory_t* memory, u32 offset, u32 value) { assert_range(memory, offset, 4); write_le_u32(memory->m_data + offset, value); }
-    void write_u64(segment_memory_t* memory, u32 offset, u64 value) { assert_range(memory, offset, 8); write_le_u64(memory->m_data + offset, value); }
+    void write_u8(segment_memory_t* memory, u32 offset, u8 value)
+    {
+        assert_range(memory, offset, 1);
+        memory->m_data[offset] = value;
+    }
+    void write_u16(segment_memory_t* memory, u32 offset, u16 value)
+    {
+        assert_range(memory, offset, 2);
+        write_le_u16(memory->m_data + offset, value);
+    }
+    void write_u32(segment_memory_t* memory, u32 offset, u32 value)
+    {
+        assert_range(memory, offset, 4);
+        write_le_u32(memory->m_data + offset, value);
+    }
+    void write_u64(segment_memory_t* memory, u32 offset, u64 value)
+    {
+        assert_range(memory, offset, 8);
+        write_le_u64(memory->m_data + offset, value);
+    }
 
-    void append_u8(segment_memory_t* memory, u8 value) { const u32 offset = grow(memory, 1); memory->m_data[offset] = value; }
-    void append_u16(segment_memory_t* memory, u16 value) { const u32 offset = grow(memory, 2); write_le_u16(memory->m_data + offset, value); }
-    void append_u32(segment_memory_t* memory, u32 value) { const u32 offset = grow(memory, 4); write_le_u32(memory->m_data + offset, value); }
-    void append_u64(segment_memory_t* memory, u64 value) { const u32 offset = grow(memory, 8); write_le_u64(memory->m_data + offset, value); }
+    void append_u8(segment_memory_t* memory, u8 value)
+    {
+        const u32 offset       = grow(memory, 1);
+        memory->m_data[offset] = value;
+    }
+    void append_u16(segment_memory_t* memory, u16 value)
+    {
+        const u32 offset = grow(memory, 2);
+        write_le_u16(memory->m_data + offset, value);
+    }
+    void append_u32(segment_memory_t* memory, u32 value)
+    {
+        const u32 offset = grow(memory, 4);
+        write_le_u32(memory->m_data + offset, value);
+    }
+    void append_u64(segment_memory_t* memory, u64 value)
+    {
+        const u32 offset = grow(memory, 8);
+        write_le_u64(memory->m_data + offset, value);
+    }
 
     void append_bits(segment_memory_t* memory, evaluekind_t kind, u64 bits)
     {
         switch (value_kind_size(kind))
         {
-        case 1: append_u8(memory, (u8)bits); break;
-        case 2: append_u16(memory, (u16)bits); break;
-        case 4: append_u32(memory, (u32)bits); break;
-        case 8: append_u64(memory, bits); break;
-        default: ASSERT(false); break;
+            case 1: append_u8(memory, (u8)bits); break;
+            case 2: append_u16(memory, (u16)bits); break;
+            case 4: append_u32(memory, (u32)bits); break;
+            case 8: append_u64(memory, bits); break;
+            default: ASSERT(false); break;
         }
     }
 
@@ -86,20 +134,44 @@ namespace ncore
         move_bytes(memory->m_data + destination_offset, source->m_data + offset, size);
     }
 
-    u8 truncate_u8(segment_memory_t* memory) { const u32 offset = shrink_offset(memory, 1); const u8 value = memory->m_data[offset]; memory->m_size = offset; return value; }
-    u16 truncate_u16(segment_memory_t* memory) { const u32 offset = shrink_offset(memory, 2); const u16 value = read_le_u16(memory->m_data + offset); memory->m_size = offset; return value; }
-    u32 truncate_u32(segment_memory_t* memory) { const u32 offset = shrink_offset(memory, 4); const u32 value = read_le_u32(memory->m_data + offset); memory->m_size = offset; return value; }
-    u64 truncate_u64(segment_memory_t* memory) { const u32 offset = shrink_offset(memory, 8); const u64 value = read_le_u64(memory->m_data + offset); memory->m_size = offset; return value; }
+    u8 truncate_u8(segment_memory_t* memory)
+    {
+        const u32 offset = shrink_offset(memory, 1);
+        const u8  value  = memory->m_data[offset];
+        memory->m_size   = offset;
+        return value;
+    }
+    u16 truncate_u16(segment_memory_t* memory)
+    {
+        const u32 offset = shrink_offset(memory, 2);
+        const u16 value  = read_le_u16(memory->m_data + offset);
+        memory->m_size   = offset;
+        return value;
+    }
+    u32 truncate_u32(segment_memory_t* memory)
+    {
+        const u32 offset = shrink_offset(memory, 4);
+        const u32 value  = read_le_u32(memory->m_data + offset);
+        memory->m_size   = offset;
+        return value;
+    }
+    u64 truncate_u64(segment_memory_t* memory)
+    {
+        const u32 offset = shrink_offset(memory, 8);
+        const u64 value  = read_le_u64(memory->m_data + offset);
+        memory->m_size   = offset;
+        return value;
+    }
 
     u64 truncate_bits(segment_memory_t* memory, evaluekind_t kind)
     {
         switch (value_kind_size(kind))
         {
-        case 1: return truncate_u8(memory);
-        case 2: return truncate_u16(memory);
-        case 4: return truncate_u32(memory);
-        case 8: return truncate_u64(memory);
-        default: ASSERT(false); return 0;
+            case 1: return truncate_u8(memory);
+            case 2: return truncate_u16(memory);
+            case 4: return truncate_u32(memory);
+            case 8: return truncate_u64(memory);
+            default: ASSERT(false); return 0;
         }
     }
 
@@ -111,4 +183,4 @@ namespace ncore
         move_bytes(destination->m_data + offset, memory->m_data + source_offset, size);
         memory->m_size = source_offset;
     }
-}
+} // namespace ncore

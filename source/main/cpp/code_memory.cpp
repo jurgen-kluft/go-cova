@@ -30,11 +30,11 @@ namespace ncore
         *offset += size;
         switch (size)
         {
-        case 1: return data[0];
-        case 2: return read_le_u16(data);
-        case 4: return read_le_u32(data);
-        case 8: return read_le_u64(data);
-        default: ASSERT(false); return 0;
+            case 1: return data[0];
+            case 2: return read_le_u16(data);
+            case 4: return read_le_u32(data);
+            case 8: return read_le_u64(data);
+            default: ASSERT(false); return 0;
         }
     }
 
@@ -46,4 +46,4 @@ namespace ncore
         *offset += 4;
         return value;
     }
-}
+} // namespace ncore

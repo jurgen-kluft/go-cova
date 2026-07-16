@@ -20,6 +20,7 @@ tags/
 !*.go
 !go.mod
 !go.sum
+!*.bin
 
 !*.cs
 !*.csproj

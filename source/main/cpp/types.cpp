@@ -3,12 +3,7 @@
 namespace ncore
 {
     static const u8 s_value_kind_sizes[KindCount] = {
-        0, 0,
-        1, 1,
-        1, 2, 4, 8,
-        1, 2, 4, 8,
-        4, 8,
-        4,
+        0, 0, 1, 1, 1, 2, 4, 8, 1, 2, 4, 8, 4, 8, 4,
     };
 
     u32 value_kind_size(evaluekind_t kind)
@@ -51,12 +46,12 @@ namespace ncore
         return (instruction_t)((u16)OpConvert | (((u16)to & 0x0fU) << 6) | (((u16)from & 0x0fU) << 10));
     }
 
-    eopcode_t instruction_opcode(instruction_t instruction) { return (eopcode_t)(instruction & 0x3fU); }
-    evaluekind_t instruction_kind(instruction_t instruction) { return (evaluekind_t)((instruction >> 6) & 0x0fU); }
-    earithmeticop_t instruction_arithmetic_op(instruction_t instruction) { return (earithmeticop_t)((instruction >> 10) & 0x3fU); }
+    eopcode_t        instruction_opcode(instruction_t instruction) { return (eopcode_t)(instruction & 0x3fU); }
+    evaluekind_t     instruction_kind(instruction_t instruction) { return (evaluekind_t)((instruction >> 6) & 0x0fU); }
+    earithmeticop_t  instruction_arithmetic_op(instruction_t instruction) { return (earithmeticop_t)((instruction >> 10) & 0x3fU); }
     ememorysegment_t instruction_address_segment(instruction_t instruction) { return (ememorysegment_t)((instruction >> 6) & 0x03ffU); }
-    ecompareop_t instruction_compare_op(instruction_t instruction) { return (ecompareop_t)((instruction >> 10) & 0x3fU); }
-    evaluekind_t instruction_convert_from_kind(instruction_t instruction) { return (evaluekind_t)((instruction >> 10) & 0x0fU); }
+    ecompareop_t     instruction_compare_op(instruction_t instruction) { return (ecompareop_t)((instruction >> 10) & 0x3fU); }
+    evaluekind_t     instruction_convert_from_kind(instruction_t instruction) { return (evaluekind_t)((instruction >> 10) & 0x0fU); }
 
     address_t make_address(ememorysegment_t segment, u32 index)
     {
@@ -66,5 +61,5 @@ namespace ncore
     }
 
     ememorysegment_t address_segment(address_t address) { return (ememorysegment_t)((address >> 24) & 0xffU); }
-    u32 address_index(address_t address) { return address & AddressIndexMask; }
-}
+    u32              address_index(address_t address) { return address & AddressIndexMask; }
+} // namespace ncore

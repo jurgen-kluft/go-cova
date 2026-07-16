@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	cova "github.com/jurgen-kluft/go-cova"
+	cova "github.com/jurgen-kluft/ccova/cova"
 )
 
 func main() {

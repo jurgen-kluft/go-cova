@@ -1,5 +1,5 @@
-#ifndef __COVA_TYPES_H__
-#define __COVA_TYPES_H__
+#ifndef __CCOVA_TYPES_H__
+#define __CCOVA_TYPES_H__
 
 #include "ccore/c_debug.h"
 
@@ -90,21 +90,21 @@ namespace ncore
     instruction_t make_compare_instruction(evaluekind_t kind, ecompareop_t operation);
     instruction_t make_convert_instruction(evaluekind_t from, evaluekind_t to);
 
-    eopcode_t instruction_opcode(instruction_t instruction);
-    evaluekind_t instruction_kind(instruction_t instruction);
-    earithmeticop_t instruction_arithmetic_op(instruction_t instruction);
+    eopcode_t        instruction_opcode(instruction_t instruction);
+    evaluekind_t     instruction_kind(instruction_t instruction);
+    earithmeticop_t  instruction_arithmetic_op(instruction_t instruction);
     ememorysegment_t instruction_address_segment(instruction_t instruction);
-    ecompareop_t instruction_compare_op(instruction_t instruction);
-    evaluekind_t instruction_convert_from_kind(instruction_t instruction);
+    ecompareop_t     instruction_compare_op(instruction_t instruction);
+    evaluekind_t     instruction_convert_from_kind(instruction_t instruction);
 
-    address_t make_address(ememorysegment_t segment, u32 index);
+    address_t        make_address(ememorysegment_t segment, u32 index);
     ememorysegment_t address_segment(address_t address);
-    u32 address_index(address_t address);
+    u32              address_index(address_t address);
 
-    static_assert(sizeof(instruction_t) == 2, "instruction ABI must be 16-bit");
-    static_assert(sizeof(address_t) == 4, "address ABI must be 32-bit");
-    static_assert(OpcodeCount < 32, "opcode count must fit the instruction encoding");
-    static_assert(KindCount <= 16, "value kind must fit four bits");
-}
+    ASSERTCTS(sizeof(instruction_t) == 2, "instruction ABI must be 16-bit");
+    ASSERTCTS(sizeof(address_t) == 4, "address ABI must be 32-bit");
+    ASSERTCTS(OpcodeCount < 32, "opcode count must fit the instruction encoding");
+    ASSERTCTS(KindCount <= 16, "value kind must fit four bits");
+} // namespace ncore
 
 #endif
