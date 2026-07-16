@@ -1,4 +1,4 @@
-module github.com/jurgen-kluft/go-cova
+module github.com/jurgen-kluft/ccova/cova
 
 go 1.25.4
 

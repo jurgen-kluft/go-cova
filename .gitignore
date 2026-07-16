@@ -37,5 +37,5 @@ tags/
 !*.ini
 !*.bat
 
-#except do ignore the following files
-CMakeLists.txt
+# native build files
+!CMakeLists.txt
