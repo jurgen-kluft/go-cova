@@ -5,11 +5,6 @@ import (
 	"math"
 )
 
-type loopLabels struct {
-	breakTarget    int
-	continueTarget int
-}
-
 type controlFrame struct {
 	allowsContinue  bool
 	breakPatches    []int
@@ -344,6 +339,10 @@ func (compiler *Compiler) registerTopLevelDecl(decl *AstTopLevelDeclNode) {
 	if decl == nil || compiler.err != nil {
 		return
 	}
+	if _, builtIn := lookupBuiltInOperation(decl.Name); builtIn {
+		compiler.fail(fmt.Errorf("compile error on line %d: top-level declaration %q uses a reserved built-in name", decl.Line, decl.Name))
+		return
+	}
 	if _, exists := compiler.symbolBindings[decl.Name]; exists {
 		compiler.fail(fmt.Errorf("compile error on line %d: duplicate top-level declaration %q", decl.Line, decl.Name))
 		return
@@ -418,6 +417,10 @@ func (compiler *Compiler) registerTopLevelDecl(decl *AstTopLevelDeclNode) {
 
 func (compiler *Compiler) registerScriptFunction(function *AstFunctionNode) {
 	if function == nil || compiler.err != nil {
+		return
+	}
+	if _, builtIn := lookupBuiltInOperation(function.Name); builtIn {
+		compiler.fail(fmt.Errorf("compile error on line %d: function %q uses a reserved built-in name", function.Line, function.Name))
 		return
 	}
 	if _, exists := compiler.symbolBindings[function.Name]; exists {
@@ -525,6 +528,9 @@ func cloneBindingsMap(bindings map[string]SymbolBinding) map[string]SymbolBindin
 func (fc *functionCompiler) exprType(expr AstExprNode) *Type {
 	switch node := expr.(type) {
 	case *AstNumberLiteral:
+		if node.IsBool {
+			return BoolType
+		}
 		if node.IsFloat {
 			if node.FloatType != nil {
 				return node.FloatType
@@ -541,6 +547,11 @@ func (fc *functionCompiler) exprType(expr AstExprNode) *Type {
 		if binding, ok := fc.symbolBindings[node.Name]; ok {
 			return binding.Type
 		}
+	case *AstUnaryExpr:
+		if node.Op == UnaryLogicalNot {
+			return BoolType
+		}
+		return fc.exprType(node.Operand)
 	case *AstBinaryExpr:
 		left := fc.exprType(node.Left)
 		right := fc.exprType(node.Right)
@@ -548,10 +559,13 @@ func (fc *functionCompiler) exprType(expr AstExprNode) *Type {
 		case "&&", "||":
 			return BoolType
 		case "==", "!=", "<", ">", "<=", ">=":
-			return Int32Type
+			return BoolType
 		}
 		return promoteNumericType(left, right)
 	case *AstCallExpr:
+		if operation, ok := lookupBuiltInOperation(node.Callee); ok {
+			return fc.builtInResultType(node, operation)
+		}
 		if binding, ok := fc.symbolBindings[node.Callee]; ok {
 			return binding.Type
 		}
@@ -592,6 +606,45 @@ func (fc *functionCompiler) compileExprAs(expr AstExprNode, expected *Type) {
 		}
 		fc.emitTyped(OpDereference, actualKind)
 		fc.emitConvertIfNeeded(actualKind, kind)
+	case *AstUnaryExpr:
+		operandType := fc.exprType(node.Operand)
+		operandKind := valueKindFromType(operandType)
+		if operandKind == KindNone {
+			fc.fail(fmt.Errorf("compile error on line %d: unary operator %q has invalid operand", node.Line, node.Op))
+			return
+		}
+		switch node.Op {
+		case UnaryLogicalNot:
+			if !isNumericKind(operandKind) {
+				fc.fail(fmt.Errorf("compile error on line %d: logical not requires a scalar operand", node.Line))
+				return
+			}
+			fc.compileExprAs(node.Operand, operandType)
+			fc.emitTyped(OpPush, operandKind)
+			fc.code.AppendImmediate(operandKind, 0)
+			fc.emitInstruction(makeCompareInstruction(operandKind, CompareEqual))
+			fc.emitConvertIfNeeded(KindBool, kind)
+		case UnaryNegate:
+			if !isNumericKind(operandKind) || operandKind == KindBool {
+				fc.fail(fmt.Errorf("compile error on line %d: unary minus requires a numeric operand", node.Line))
+				return
+			}
+			fc.emitTyped(OpPush, operandKind)
+			fc.code.AppendImmediate(operandKind, 0)
+			fc.compileExprAs(node.Operand, operandType)
+			fc.emitInstruction(makeArithmeticInstruction(operandKind, ArithmeticSub))
+			fc.emitConvertIfNeeded(operandKind, kind)
+		case UnaryBitwiseNot:
+			if !isIntegerKind(operandKind) {
+				fc.fail(fmt.Errorf("compile error on line %d: bitwise not requires an integer operand", node.Line))
+				return
+			}
+			fc.compileExprAs(node.Operand, operandType)
+			fc.emitTyped(OpPush, operandKind)
+			fc.code.AppendImmediate(operandKind, ^uint64(0))
+			fc.emitInstruction(makeArithmeticInstruction(operandKind, ArithmeticBitwiseXor))
+			fc.emitConvertIfNeeded(operandKind, kind)
+		}
 	case *AstBinaryExpr:
 		if node.Op == "&&" || node.Op == "||" {
 			fc.compileLogicalExpr(node, kind)
@@ -599,7 +652,7 @@ func (fc *functionCompiler) compileExprAs(expr AstExprNode, expected *Type) {
 		}
 		binaryType := expected
 		comparisonOp := isComparisonOperator(node.Op)
-		if comparisonOp {
+		if comparisonOp || isIntegerBinaryOperator(node.Op) {
 			binaryType = promoteNumericType(fc.exprType(node.Left), fc.exprType(node.Right))
 		}
 		if binaryType == nil {
@@ -610,13 +663,18 @@ func (fc *functionCompiler) compileExprAs(expr AstExprNode, expected *Type) {
 			binaryKind = KindInt32
 			binaryType = Int32Type
 		}
+		if isIntegerBinaryOperator(node.Op) && !isIntegerKind(binaryKind) {
+			fc.fail(fmt.Errorf("compile error on line %d: operator %q requires integer operands", node.Line, node.Op))
+			return
+		}
 		fc.compileExprAs(node.Left, binaryType)
 		fc.compileExprAs(node.Right, binaryType)
 		if fc.err != nil {
 			return
 		}
 		switch node.Op {
-		case "+", "-", "*", "/":
+		case BinaryAdd, BinarySub, BinaryMul, BinaryDiv, BinaryModulo,
+			BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor, BinaryShiftLeft, BinaryShiftRight:
 			fc.emitArithmetic(node.Op, binaryKind)
 		case "==", "!=", "<", ">", "<=", ">=":
 			fc.emitComparison(node.Op, binaryKind)
@@ -625,6 +683,10 @@ func (fc *functionCompiler) compileExprAs(expr AstExprNode, expected *Type) {
 			fc.fail(fmt.Errorf("compile error on line %d: unsupported binary operator %q", node.Line, node.Op))
 		}
 	case *AstCallExpr:
+		if operation, ok := lookupBuiltInOperation(node.Callee); ok {
+			fc.compileBuiltInCall(node, operation, kind)
+			return
+		}
 		binding, ok := fc.symbolBindings[node.Callee]
 		if !ok || binding.Kind != DeclFunction {
 			fc.fail(fmt.Errorf("compile error on line %d: unknown function %q", node.Line, node.Callee))
@@ -658,6 +720,84 @@ func (fc *functionCompiler) compileExprAs(expr AstExprNode, expected *Type) {
 	default:
 		fc.fail(fmt.Errorf("compile error: unsupported expression type %T", expr))
 	}
+}
+
+func lookupBuiltInOperation(name string) (BuiltInOperation, bool) {
+	switch name {
+	case "abs":
+		return BuiltInAbs, true
+	case "sin":
+		return BuiltInSin, true
+	case "cos":
+		return BuiltInCos, true
+	case "tan":
+		return BuiltInTan, true
+	case "asin":
+		return BuiltInAsin, true
+	case "acos":
+		return BuiltInAcos, true
+	case "atan":
+		return BuiltInAtan, true
+	case "pow":
+		return BuiltInPow, true
+	case "sqrt":
+		return BuiltInSqrt, true
+	default:
+		return BuiltInOperationInvalid, false
+	}
+}
+
+func (fc *functionCompiler) builtInResultType(call *AstCallExpr, operation BuiltInOperation) *Type {
+	if operation == BuiltInPow {
+		if len(call.Args) != 2 {
+			return nil
+		}
+		result := promoteNumericType(fc.exprType(call.Args[0]), fc.exprType(call.Args[1]))
+		if isIntegerKind(valueKindFromType(result)) {
+			return Float64Type
+		}
+		return result
+	}
+	if len(call.Args) != 1 {
+		return nil
+	}
+	result := fc.exprType(call.Args[0])
+	if operation != BuiltInAbs && valueKindFromType(result) != KindFloat32 {
+		return Float64Type
+	}
+	return result
+}
+
+func (fc *functionCompiler) compileBuiltInCall(call *AstCallExpr, operation BuiltInOperation, expectedKind ValueKind) {
+	wantArgs := 1
+	if operation == BuiltInPow {
+		wantArgs = 2
+	}
+	if len(call.Args) != wantArgs {
+		fc.fail(fmt.Errorf("compile error on line %d: built-in function %q expects %d arguments, got %d", call.Line, call.Callee, wantArgs, len(call.Args)))
+		return
+	}
+	for _, arg := range call.Args {
+		argKind := valueKindFromType(fc.exprType(arg))
+		if !isNumericKind(argKind) || argKind == KindBool {
+			fc.fail(fmt.Errorf("compile error on line %d: built-in function %q requires numeric arguments", call.Line, call.Callee))
+			return
+		}
+	}
+	resultType := fc.builtInResultType(call, operation)
+	resultKind := valueKindFromType(resultType)
+	if resultKind == KindNone {
+		fc.fail(fmt.Errorf("compile error on line %d: cannot determine result type of built-in function %q", call.Line, call.Callee))
+		return
+	}
+	for _, arg := range call.Args {
+		fc.compileExprAs(arg, resultType)
+		if fc.err != nil {
+			return
+		}
+	}
+	fc.code.AppendInstruction(makeBuiltInInstruction(makeBuiltInFunction(operation, resultKind)))
+	fc.emitConvertIfNeeded(resultKind, expectedKind)
 }
 
 func (compiler *Compiler) canAssignStringLiteral(target *Type) bool {
@@ -865,6 +1005,15 @@ func isNumericKind(kind ValueKind) bool {
 	}
 }
 
+func isIntegerKind(kind ValueKind) bool {
+	switch kind {
+	case KindByte, KindInt8, KindInt16, KindInt32, KindInt64, KindUint8, KindUint16, KindUint32, KindUint64:
+		return true
+	default:
+		return false
+	}
+}
+
 func promoteNumericType(left *Type, right *Type) *Type {
 	if left == nil {
 		return right
@@ -1034,7 +1183,16 @@ func (fc *functionCompiler) compileStmt(stmt AstStmtNode) {
 			return
 		}
 		targetType := fc.exprType(node.Target)
-		fc.compileExprAs(node.Value, targetType)
+		if node.Op == "" || node.Op == AssignSimple {
+			fc.compileExprAs(node.Value, targetType)
+		} else {
+			binaryOp, ok := compoundBinaryOperators[node.Op]
+			if !ok {
+				fc.fail(fmt.Errorf("compile error on line %d: unsupported assignment operator %q", node.Line, node.Op))
+				return
+			}
+			fc.compileExprAs(&AstBinaryExpr{Op: binaryOp, Left: node.Target, Right: node.Value, Line: node.Line}, targetType)
+		}
 		node.Target.astEmitAddress(fc)
 		if fc.err != nil {
 			return
@@ -1132,7 +1290,7 @@ func (fc *functionCompiler) rejectConstAssignment(target AstLvalueNode, line int
 	return false
 }
 
-func isComparisonOperator(op string) bool {
+func isComparisonOperator(op BinaryOp) bool {
 	switch op {
 	case "==", "!=", "<", ">", "<=", ">=":
 		return true
@@ -1141,7 +1299,7 @@ func isComparisonOperator(op string) bool {
 	}
 }
 
-var comparisonOperators = map[string]CompareOp{
+var comparisonOperators = map[BinaryOp]CompareOp{
 	"==": CompareEqual,
 	"!=": CompareNotEqual,
 	"<":  CompareLess,
@@ -1150,14 +1308,30 @@ var comparisonOperators = map[string]CompareOp{
 	">=": CompareGreaterEqual,
 }
 
-var arithmeticOperators = map[string]ArithmeticOp{
-	"+": ArithmeticAdd,
-	"-": ArithmeticSub,
-	"*": ArithmeticMul,
-	"/": ArithmeticDiv,
+var arithmeticOperators = map[BinaryOp]ArithmeticOp{
+	BinaryAdd: ArithmeticAdd, BinarySub: ArithmeticSub,
+	BinaryMul: ArithmeticMul, BinaryDiv: ArithmeticDiv, BinaryModulo: ArithmeticModulo,
+	BinaryBitwiseAnd: ArithmeticBitwiseAnd, BinaryBitwiseOr: ArithmeticBitwiseOr,
+	BinaryBitwiseXor: ArithmeticBitwiseXor,
+	BinaryShiftLeft:  ArithmeticShiftLeft, BinaryShiftRight: ArithmeticShiftRight,
 }
 
-func (fc *functionCompiler) emitArithmetic(op string, kind ValueKind) {
+func isIntegerBinaryOperator(op BinaryOp) bool {
+	switch op {
+	case BinaryModulo, BinaryBitwiseAnd, BinaryBitwiseOr, BinaryBitwiseXor, BinaryShiftLeft, BinaryShiftRight:
+		return true
+	default:
+		return false
+	}
+}
+
+var compoundBinaryOperators = map[AssignOp]BinaryOp{
+	AssignAdd: BinaryAdd, AssignSub: BinarySub, AssignMul: BinaryMul, AssignDiv: BinaryDiv,
+	AssignModulo: BinaryModulo, AssignShiftLeft: BinaryShiftLeft, AssignShiftRight: BinaryShiftRight,
+	AssignBitwiseAnd: BinaryBitwiseAnd, AssignBitwiseXor: BinaryBitwiseXor, AssignBitwiseOr: BinaryBitwiseOr,
+}
+
+func (fc *functionCompiler) emitArithmetic(op BinaryOp, kind ValueKind) {
 	if arithmeticOp, ok := arithmeticOperators[op]; ok {
 		fc.emitInstruction(makeArithmeticInstruction(kind, arithmeticOp))
 	} else {
@@ -1165,7 +1339,7 @@ func (fc *functionCompiler) emitArithmetic(op string, kind ValueKind) {
 	}
 }
 
-func (fc *functionCompiler) emitComparison(op string, kind ValueKind) {
+func (fc *functionCompiler) emitComparison(op BinaryOp, kind ValueKind) {
 	if compareOp, ok := comparisonOperators[op]; ok {
 		fc.emitInstruction(makeCompareInstruction(kind, compareOp))
 	} else {

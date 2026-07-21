@@ -43,6 +43,53 @@ type AstLvalueNode interface {
 	astEmitAddress(compiler *functionCompiler)
 }
 
+type UnaryOp string
+
+const (
+	UnaryLogicalNot UnaryOp = "!"
+	UnaryNegate     UnaryOp = "-"
+	UnaryBitwiseNot UnaryOp = "~"
+)
+
+type BinaryOp string
+
+const (
+	BinaryLogicalOr    BinaryOp = "||"
+	BinaryLogicalAnd   BinaryOp = "&&"
+	BinaryBitwiseOr    BinaryOp = "|"
+	BinaryBitwiseXor   BinaryOp = "^"
+	BinaryBitwiseAnd   BinaryOp = "&"
+	BinaryEqual        BinaryOp = "=="
+	BinaryNotEqual     BinaryOp = "!="
+	BinaryLess         BinaryOp = "<"
+	BinaryLessEqual    BinaryOp = "<="
+	BinaryGreater      BinaryOp = ">"
+	BinaryGreaterEqual BinaryOp = ">="
+	BinaryShiftLeft    BinaryOp = "<<"
+	BinaryShiftRight   BinaryOp = ">>"
+	BinaryAdd          BinaryOp = "+"
+	BinarySub          BinaryOp = "-"
+	BinaryMul          BinaryOp = "*"
+	BinaryDiv          BinaryOp = "/"
+	BinaryModulo       BinaryOp = "%"
+)
+
+type AssignOp string
+
+const (
+	AssignSimple     AssignOp = "="
+	AssignAdd        AssignOp = "+="
+	AssignSub        AssignOp = "-="
+	AssignMul        AssignOp = "*="
+	AssignDiv        AssignOp = "/="
+	AssignModulo     AssignOp = "%="
+	AssignShiftLeft  AssignOp = "<<="
+	AssignShiftRight AssignOp = ">>="
+	AssignBitwiseAnd AssignOp = "&="
+	AssignBitwiseXor AssignOp = "^="
+	AssignBitwiseOr  AssignOp = "|="
+)
+
 type AstBlockStmt struct {
 	Statements []AstStmtNode
 	Line       int
@@ -102,6 +149,7 @@ type AstExprStmt struct {
 
 type AstAssignStmt struct {
 	Target AstLvalueNode
+	Op     AssignOp
 	Value  AstExprNode
 	Line   int
 }
@@ -117,6 +165,7 @@ type AstNumberLiteral struct {
 	IntValue   int
 	FloatValue float64
 	IsFloat    bool
+	IsBool     bool
 	FloatType  *Type
 	Line       int
 }
@@ -132,10 +181,16 @@ type AstIdentNode struct {
 }
 
 type AstBinaryExpr struct {
-	Op    string
+	Op    BinaryOp
 	Left  AstExprNode
 	Right AstExprNode
 	Line  int
+}
+
+type AstUnaryExpr struct {
+	Op      UnaryOp
+	Operand AstExprNode
+	Line    int
 }
 
 type AstCallExpr struct {
@@ -159,4 +214,5 @@ func (*AstNumberLiteral) astExprNode() {}
 func (*AstStringLiteral) astExprNode() {}
 func (*AstIdentNode) astExprNode()     {}
 func (*AstBinaryExpr) astExprNode()    {}
+func (*AstUnaryExpr) astExprNode()     {}
 func (*AstCallExpr) astExprNode()      {}

@@ -1,6 +1,9 @@
 package cova
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestOpcodeCoverageCompleteness(t *testing.T) {
 	cases := [OpcodeCount]func(*testing.T){
@@ -67,6 +70,12 @@ func TestOpcodeCoverageCompleteness(t *testing.T) {
 			if _, status := runOpcodeProgram(t, code, KindVoid); status != VMStatusOK {
 				t.Fatalf("Run status = %s, want ok", status)
 			}
+		},
+		OpBuiltIn: func(t *testing.T) {
+			var code CodeMemory
+			appendOpcodeValue(&code, KindFloat64, math.Float64bits(9))
+			code.AppendInstruction(makeBuiltInInstruction(makeBuiltInFunction(BuiltInSqrt, KindFloat64)))
+			_ = runOpcodeResult(t, code, KindFloat64)
 		},
 	}
 

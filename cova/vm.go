@@ -1,6 +1,9 @@
 package cova
 
-import "math"
+import (
+	"math"
+	"unsafe"
+)
 
 type callFrame struct {
 	returnPC   uint32
@@ -437,12 +440,118 @@ func (vm *VM) RunLoaded() VMStatus {
 			if done {
 				return VMStatusOK
 			}
+		case OpBuiltIn:
+			if status = vm.executeBuiltIn(instruction.BuiltInFunction()); status != VMStatusOK {
+				return vm.recordStatus(status)
+			}
 		default:
 			return vm.setFault(VMStatusInvalidOpcode, int(op), -1, -1)
 		}
 	}
 
 	return VMStatusOK
+}
+
+func (vm *VM) executeBuiltIn(function BuiltInFunction) VMStatus {
+	operation := function.Operation()
+	kind := function.Kind()
+	if operation == BuiltInAbs {
+		return vm.executeBuiltInAbs(kind)
+	}
+	if kind != KindFloat32 && kind != KindFloat64 {
+		return VMStatusInvalidValueKind
+	}
+	if operation == BuiltInPow {
+		return vm.executeBuiltInPow(kind)
+	}
+	var apply func(float64) float64
+	switch operation {
+	case BuiltInSin:
+		apply = math.Sin
+	case BuiltInCos:
+		apply = math.Cos
+	case BuiltInTan:
+		apply = math.Tan
+	case BuiltInAsin:
+		apply = math.Asin
+	case BuiltInAcos:
+		apply = math.Acos
+	case BuiltInAtan:
+		apply = math.Atan
+	case BuiltInSqrt:
+		apply = math.Sqrt
+	default:
+		return VMStatusInvalidOpcode
+	}
+	if kind == KindFloat32 {
+		value, status := vm.PopFloat32()
+		if status != VMStatusOK {
+			return status
+		}
+		return vm.PushFloat32(float32(apply(float64(value))))
+	}
+	value, status := vm.PopFloat64()
+	if status != VMStatusOK {
+		return status
+	}
+	return vm.PushFloat64(apply(value))
+}
+
+func (vm *VM) executeBuiltInPow(kind ValueKind) VMStatus {
+	if kind == KindFloat32 {
+		exponent, status := vm.PopFloat32()
+		if status != VMStatusOK {
+			return status
+		}
+		base, status := vm.PopFloat32()
+		if status != VMStatusOK {
+			return status
+		}
+		return vm.PushFloat32(float32(math.Pow(float64(base), float64(exponent))))
+	}
+	exponent, status := vm.PopFloat64()
+	if status != VMStatusOK {
+		return status
+	}
+	base, status := vm.PopFloat64()
+	if status != VMStatusOK {
+		return status
+	}
+	return vm.PushFloat64(math.Pow(base, exponent))
+}
+
+func (vm *VM) executeBuiltInAbs(kind ValueKind) VMStatus {
+	bits, status := vm.PopBits(kind)
+	if status != VMStatusOK {
+		return status
+	}
+	switch kind {
+	case KindByte, KindUint8, KindUint16, KindUint32, KindUint64:
+		return vm.PushBits(kind, bits)
+	case KindInt8:
+		if bits&0x80 != 0 {
+			bits = uint64(uint8(0 - uint8(bits)))
+		}
+	case KindInt16:
+		if bits&0x8000 != 0 {
+			bits = uint64(uint16(0 - uint16(bits)))
+		}
+	case KindInt32:
+		if bits&0x80000000 != 0 {
+			bits = uint64(uint32(0 - uint32(bits)))
+		}
+	case KindInt64:
+		if bits&0x8000000000000000 != 0 {
+			bits = 0 - bits
+		}
+	case KindFloat32:
+		bits = uint64(math.Float32bits(float32(math.Abs(float64(math.Float32frombits(uint32(bits)))))))
+	case KindFloat64:
+		bits = math.Float64bits(math.Abs(math.Float64frombits(bits)))
+	default:
+		return VMStatusInvalidValueKind
+	}
+	return vm.PushBits(kind, bits)
 }
 
 func (vm *VM) clearFault() {
@@ -793,6 +902,21 @@ func executeIntegerArithmetic[T vmInteger](pop func() (T, VMStatus), push func(T
 			return VMStatusDivisionByZero
 		}
 		result = left / right
+	case ArithmeticModulo:
+		if right == 0 {
+			return VMStatusDivisionByZero
+		}
+		result = left % right
+	case ArithmeticBitwiseAnd:
+		result = left & right
+	case ArithmeticBitwiseOr:
+		result = left | right
+	case ArithmeticBitwiseXor:
+		result = left ^ right
+	case ArithmeticShiftLeft:
+		result = left << (uint64(right) & (uint64(unsafe.Sizeof(left))*8 - 1))
+	case ArithmeticShiftRight:
+		result = left >> (uint64(right) & (uint64(unsafe.Sizeof(left))*8 - 1))
 	default:
 		return VMStatusInvalidOpcode
 	}

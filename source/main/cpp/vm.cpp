@@ -3,6 +3,8 @@
 #include "ccova/float_bits.h"
 #include "ccova/image.h"
 
+#include <cmath>
+
 namespace ncore
 {
     static void assert_segment_storage(const segment_memory_t& segment)
@@ -297,6 +299,26 @@ namespace ncore
                 if (is_signed && right == (T)-1 && left == (T)((U)1 << (sizeof(T) * 8 - 1)))
                     return unsigned_left;
                 return (U)(left / right);
+            case ArithmeticModulo:
+                ASSERT(right != 0);
+                if (is_signed && right == (T)-1 && left == (T)((U)1 << (sizeof(T) * 8 - 1)))
+                    return 0;
+                return (U)(left % right);
+            case ArithmeticBitwiseAnd: return (U)(unsigned_left & unsigned_right);
+            case ArithmeticBitwiseOr: return (U)(unsigned_left | unsigned_right);
+            case ArithmeticBitwiseXor: return (U)(unsigned_left ^ unsigned_right);
+            case ArithmeticShiftLeft:
+            {
+                const u32 shift = (u32)(unsigned_right & (sizeof(T) * 8 - 1));
+                return (U)(unsigned_left << shift);
+            }
+            case ArithmeticShiftRight:
+            {
+                const u32 shift = (u32)(unsigned_right & (sizeof(T) * 8 - 1));
+                if (!is_signed || left >= 0 || shift == 0)
+                    return (U)(unsigned_left >> shift);
+                return (U)((unsigned_left >> shift) | ((U)~(U)0 << (sizeof(T) * 8 - shift)));
+            }
             default: ASSERT(false); return 0;
         }
     }
@@ -332,6 +354,80 @@ namespace ncore
             case KindFloat32: push_bits(vm, kind, f32_to_bits(float_arithmetic(bits_to_f32((u32)left_bits), bits_to_f32((u32)right_bits), operation))); break;
             case KindFloat64: push_bits(vm, kind, f64_to_bits(float_arithmetic(bits_to_f64(left_bits), bits_to_f64(right_bits), operation))); break;
             default: ASSERT(false); break;
+        }
+    }
+
+    static f64 execute_builtin_unary(f64 value, ebuiltinoperation_t operation)
+    {
+        switch (operation)
+        {
+            case BuiltInSin: return std::sin(value);
+            case BuiltInCos: return std::cos(value);
+            case BuiltInTan: return std::tan(value);
+            case BuiltInAsin: return std::asin(value);
+            case BuiltInAcos: return std::acos(value);
+            case BuiltInAtan: return std::atan(value);
+            case BuiltInSqrt: return std::sqrt(value);
+            default: ASSERT(false); return 0.0;
+        }
+    }
+
+    static void execute_builtin_abs(vm_t* vm, evaluekind_t kind)
+    {
+        u64 bits = pop_bits(vm, kind);
+        switch (kind)
+        {
+            case KindByte:
+            case KindUint8:
+            case KindUint16:
+            case KindUint32:
+            case KindUint64: break;
+            case KindInt8: if ((bits & 0x80U) != 0) bits = (u8)(0U - (u8)bits); break;
+            case KindInt16: if ((bits & 0x8000U) != 0) bits = (u16)(0U - (u16)bits); break;
+            case KindInt32: if ((bits & 0x80000000U) != 0) bits = (u32)(0U - (u32)bits); break;
+            case KindInt64: if ((bits & 0x8000000000000000ULL) != 0) bits = 0ULL - bits; break;
+            case KindFloat32: bits = f32_to_bits((f32)std::fabs((f64)bits_to_f32((u32)bits))); break;
+            case KindFloat64: bits = f64_to_bits(std::fabs(bits_to_f64(bits))); break;
+            default: ASSERT(false); return;
+        }
+        push_bits(vm, kind, bits);
+    }
+
+    static void execute_builtin(vm_t* vm, builtin_function_t function)
+    {
+        const ebuiltinoperation_t operation = builtin_function_operation(function);
+        const evaluekind_t        kind      = builtin_function_kind(function);
+        if (operation == BuiltInAbs)
+        {
+            execute_builtin_abs(vm, kind);
+            return;
+        }
+        ASSERT(kind == KindFloat32 || kind == KindFloat64);
+        if (operation == BuiltInPow)
+        {
+            if (kind == KindFloat32)
+            {
+                const f32 exponent = bits_to_f32((u32)pop_bits(vm, kind));
+                const f32 base     = bits_to_f32((u32)pop_bits(vm, kind));
+                push_bits(vm, kind, f32_to_bits((f32)std::pow((f64)base, (f64)exponent)));
+            }
+            else
+            {
+                const f64 exponent = bits_to_f64(pop_bits(vm, kind));
+                const f64 base     = bits_to_f64(pop_bits(vm, kind));
+                push_bits(vm, kind, f64_to_bits(std::pow(base, exponent)));
+            }
+            return;
+        }
+        if (kind == KindFloat32)
+        {
+            const f32 value = bits_to_f32((u32)pop_bits(vm, kind));
+            push_bits(vm, kind, f32_to_bits((f32)execute_builtin_unary((f64)value, operation)));
+        }
+        else
+        {
+            const f64 value = bits_to_f64(pop_bits(vm, kind));
+            push_bits(vm, kind, f64_to_bits(execute_builtin_unary(value, operation)));
         }
     }
 
@@ -414,6 +510,7 @@ namespace ncore
                     break;
                 }
                 case OpArithmetic: execute_arithmetic(vm, instruction_kind(instruction), instruction_arithmetic_op(instruction)); break;
+                case OpBuiltIn: execute_builtin(vm, instruction_builtin_function(instruction)); break;
                 case OpConvert: execute_conversion(vm, instruction_convert_from_kind(instruction), instruction_kind(instruction)); break;
                 case OpAddr:
                 {

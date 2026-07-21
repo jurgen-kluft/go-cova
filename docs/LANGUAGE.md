@@ -40,7 +40,10 @@ The language currently supports:
 - Primitive numeric and boolean-like types
 - String literals lowered to pointer values
 - `//` single-line comments
+- `/* ... */` block comments
 - Numeric expressions
+- Unary, bitwise, shift, and modulo expressions
+- Arithmetic, bitwise, and shift compound assignments
 - Function calls
 - `if`, `if/else`, `while`, `for`, `switch`, `break`, `continue`, and `return`
 
@@ -50,11 +53,9 @@ The language does not currently support:
 - Arrays
 - Structs
 - Field access
-- Unary operators such as `-x`, `!x`, `*ptr`, `&x`
-- Bitwise operators
-- Modulo
+- Address-of and dereference expressions such as `&x` and `*ptr`
 - Usable source-level pointer operations
-- `/* ... */` block comments
+- Member access, indexing, ternary expressions, increment/decrement, variadics, and preprocessing
 
 ## Compact Grammar
 
@@ -103,18 +104,25 @@ default_case   ::= "default" ":" stmt*
 return_stmt    ::= "return" expr? ";"
 break_stmt     ::= "break" ";"
 continue_stmt  ::= "continue" ";"
-assign_stmt    ::= lvalue "=" expr ";"
-assign_stmt_no_semi ::= lvalue "=" expr
+assign_stmt    ::= lvalue assign_op expr ";"
+assign_stmt_no_semi ::= lvalue assign_op expr
+assign_op      ::= "=" | "+=" | "-=" | "*=" | "/=" | "%=" |
+                   "<<=" | ">>=" | "&=" | "^=" | "|="
 local_decl     ::= const_qualifier? type ident ("=" expr)? ";"
 expr_stmt      ::= expr ";"
 
  expr           ::= logical_or
  logical_or     ::= logical_and ("||" logical_and)*
- logical_and    ::= equality (("&&") equality)*
+ logical_and    ::= bitwise_or ("&&" bitwise_or)*
+ bitwise_or     ::= bitwise_xor ("|" bitwise_xor)*
+ bitwise_xor    ::= bitwise_and ("^" bitwise_and)*
+ bitwise_and    ::= equality ("&" equality)*
  equality       ::= relational (("==" | "!=") relational)*
- relational     ::= additive (("<" | "<=" | ">" | ">=") additive)*
+ relational     ::= shift (("<" | "<=" | ">" | ">=") shift)*
+ shift          ::= additive (("<<" | ">>") additive)*
  additive       ::= multiplicative (("+" | "-") multiplicative)*
- multiplicative ::= primary (("*" | "/") primary)*
+ multiplicative ::= unary (("*" | "/" | "%") unary)*
+ unary          ::= ("!" | "~" | "-") unary | primary
  primary        ::= boolean
                   | number
                   | string
@@ -151,7 +159,13 @@ void apply_damage() {
 }
 ```
 
-Comments are discarded by the lexer and do not produce tokens. `/* ... */` block comments are not supported.
+Comments are discarded by the lexer and do not produce tokens. Block comments may span lines and do not nest.
+
+The tokenizer emits physical newline tokens for tooling. The parser ignores them, and semicolons remain mandatory statement and declaration terminators.
+
+## Recognized Punctuators
+
+The tokenizer recognizes ordinary C-like punctuators, including `[]`, `.`, `->`, `?`, `++`, `--`, `...`, `#`, and `##`, plus `::`. Recognition reserves a stable lexical vocabulary; it does not make the corresponding language feature available. Arrays, member access, qualified names, ternary expressions, increment/decrement, variadics, and preprocessing currently produce parser errors. ISO C digraph aliases are not recognized.
 
 ## Top-Level Declarations
 
@@ -374,17 +388,7 @@ ready = 1;
 ready = 7;
 ```
 
-Unary minus is not part of the current grammar, so write:
-
-```c
-0 - 1
-```
-
-instead of:
-
-```c
--1
-```
+Unary minus is supported for integer and floating-point values. Unsigned negation uses modular arithmetic.
 
 ## Expressions
 
@@ -396,6 +400,8 @@ Supported expressions:
 - Function calls
 - Parenthesized expressions
 - Binary arithmetic
+- Unary arithmetic and logical operations
+- Bitwise and shift operations
 - Comparisons
 - Logical operators
 
@@ -407,6 +413,7 @@ Supported operators:
 - `-`
 - `*`
 - `/`
+- `%` for integer operands
 
 Examples:
 
@@ -415,7 +422,14 @@ counter + 1
 total - delta
 base * 2
 amount / 4
+remainder % 4
 ```
+
+### Unary and bitwise operators
+
+Prefix `-` negates numeric values, `!` tests numeric truthiness and produces `bool`, and `~` complements integer bits. Binary `&`, `|`, and `^` accept integer operands. Shifts accept integer operands; signed right shift is arithmetic and unsigned right shift is logical. Shift counts are masked to the promoted left operand width.
+
+Compound forms `+=`, `-=`, `*=`, `/=`, `%=`, `<<=`, `>>=`, `&=`, `^=`, and `|=` update an assignable variable.
 
 ### Comparisons
 
@@ -458,7 +472,7 @@ Logical operators use numeric truthiness, short-circuit evaluation, and produce 
 - `0` when the expression is false
 - `1` when the expression is true
 
-`&&` binds tighter than `||`, so `bool1 && bool2 || bool3` parses as `(bool1 && bool2) || bool3`. Use parentheses to override that grouping, for example `bool1 && (bool2 || bool3)`.
+From lowest to highest, binary precedence is `||`, `&&`, `|`, `^`, `&`, equality, relational comparisons, shifts, addition/subtraction, and multiplication/division/modulo. Prefix unary operators bind above those binary operators, and calls bind highest.
 
 ### Numeric promotion
 
@@ -479,6 +493,22 @@ float64 script_main() {
     return base + 1.5;
 }
 ```
+
+### Math built-ins
+
+The following functions are implicit built-ins and do not require declarations:
+
+- `abs(value)`
+- `sin(value)`, `cos(value)`, and `tan(value)`
+- `asin(value)`, `acos(value)`, and `atan(value)`
+- `pow(base, exponent)`
+- `sqrt(value)`
+
+`abs` preserves the input numeric type. For the minimum value of a signed integer type, the result wraps to the same minimum value. Unsigned and `byte` inputs are unchanged.
+
+The other built-ins preserve `float32` when all operands are `float32`; `float64` inputs produce `float64`. Integer operands are promoted to `float64`. Mixed `pow` operands use normal numeric promotion, with an integer-only result promoted to `float64`. Boolean arguments are rejected.
+
+Trigonometric arguments and results use radians. Invalid floating-point domains, such as `sqrt(-1)` or `asin(2)`, follow IEEE 754 and produce NaN. Built-in names are reserved and cannot be redeclared.
 
 ## Statements
 
@@ -711,28 +741,9 @@ Treat pointers as reserved or incomplete rather than usable.
 
 ## Current Limits and Gotchas
 
-### No unary operators
+### Incomplete pointer operators
 
-These are not currently supported:
-
-- `-x`
-- `!x`
-- `*ptr`
-- `&x`
-
-### No bitwise operators
-
-These are not currently supported:
-
-- `&`
-- `|`
-- `^`
-- `<<`
-- `>>`
-
-### No modulo
-
-`%` is not supported.
+Unary address-of `&x` and dereference `*ptr` are not currently supported. The same characters are supported as binary bitwise AND and multiplication operators.
 
 ### No strings or aggregates
 

@@ -16,6 +16,12 @@ func TestInstructionOpcodeRoundTrips(t *testing.T) {
 }
 
 func TestSpecializedInstructionPayloadsRoundTrip(t *testing.T) {
+	for function := BuiltInFunction(0); function <= 0x07ff; function++ {
+		instruction := makeBuiltInInstruction(function)
+		if instruction.Opcode() != OpBuiltIn || instruction.BuiltInFunction() != function {
+			t.Fatalf("built-in function %d did not round trip", function)
+		}
+	}
 	for _, operation := range []ArithmeticOp{ArithmeticAdd, ArithmeticSub, ArithmeticMul, ArithmeticDiv} {
 		instruction := makeArithmeticInstruction(KindInt16, operation)
 		if instruction.Opcode() != OpArithmetic || instruction.Kind() != KindInt16 || instruction.ArithmeticOp() != operation {

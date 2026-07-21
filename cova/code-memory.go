@@ -24,7 +24,7 @@ const (
 type Instruction uint16
 
 func makeInstruction(op Opcode, kind ValueKind, mode InstructionMode, flags InstructionFlag) Instruction {
-	return Instruction(uint16(op&0x3f) | uint16(kind&0x0f)<<6 | uint16(mode&0x03)<<10 | uint16(flags&0x0f)<<12)
+	return Instruction(uint16(op&0x1f) | uint16(kind&0x0f)<<6 | uint16(mode&0x03)<<10 | uint16(flags&0x0f)<<12)
 }
 
 func makeArithmeticInstruction(kind ValueKind, op ArithmeticOp) Instruction {
@@ -43,8 +43,12 @@ func makeConvertInstruction(from ValueKind, to ValueKind) Instruction {
 	return Instruction(uint16(OpConvert&0x3f) | uint16(to&0x0f)<<6 | uint16(from&0x0f)<<10)
 }
 
+func makeBuiltInInstruction(function BuiltInFunction) Instruction {
+	return Instruction(uint16(OpBuiltIn&0x1f) | uint16(function&0x07ff)<<5)
+}
+
 func (instruction Instruction) Opcode() Opcode {
-	return Opcode(byte(instruction & 0x3f))
+	return Opcode(byte(instruction & 0x1f))
 }
 
 func (instruction Instruction) Kind() ValueKind {
@@ -73,6 +77,10 @@ func (instruction Instruction) CompareOp() CompareOp {
 
 func (instruction Instruction) ConvertFromKind() ValueKind {
 	return ValueKind((instruction >> 10) & 0x0f)
+}
+
+func (instruction Instruction) BuiltInFunction() BuiltInFunction {
+	return BuiltInFunction((instruction >> 5) & 0x07ff)
 }
 
 type CodeMemory []byte

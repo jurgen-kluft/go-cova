@@ -1,6 +1,7 @@
 package cova
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -465,6 +466,103 @@ int script_main() {
 	}
 	if rightGrouped.Name != "bool3" {
 		t.Fatalf("expected grouped right operand bool3, got %q", rightGrouped.Name)
+	}
+}
+
+func TestParseBitwiseShiftModuloAndUnaryOperators(t *testing.T) {
+	script := `
+int a;
+int b;
+int c;
+
+int script_main() {
+	a += b | c ^ a & b == c << 1 + 1;
+	return !~-a % 3;
+}
+`
+	tokens, err := Tokenize(script)
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+	program, err := Parse(tokens)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	assignment, ok := program.Functions[0].Body.Statements[0].(*AstAssignStmt)
+	if !ok {
+		t.Fatalf("expected compound assignment, got %T", program.Functions[0].Body.Statements[0])
+	}
+	if assignment.Op != AssignAdd {
+		t.Fatalf("expected += assignment, got %q", assignment.Op)
+	}
+	orExpr, ok := assignment.Value.(*AstBinaryExpr)
+	if !ok || orExpr.Op != BinaryBitwiseOr {
+		t.Fatalf("expected top-level bitwise OR, got %#v", assignment.Value)
+	}
+	xorExpr, ok := orExpr.Right.(*AstBinaryExpr)
+	if !ok || xorExpr.Op != BinaryBitwiseXor {
+		t.Fatalf("expected XOR below OR, got %#v", orExpr.Right)
+	}
+	andExpr, ok := xorExpr.Right.(*AstBinaryExpr)
+	if !ok || andExpr.Op != BinaryBitwiseAnd {
+		t.Fatalf("expected AND below XOR, got %#v", xorExpr.Right)
+	}
+	equalExpr, ok := andExpr.Right.(*AstBinaryExpr)
+	if !ok || equalExpr.Op != BinaryEqual {
+		t.Fatalf("expected equality below AND, got %#v", andExpr.Right)
+	}
+	shiftExpr, ok := equalExpr.Right.(*AstBinaryExpr)
+	if !ok || shiftExpr.Op != BinaryShiftLeft {
+		t.Fatalf("expected shift below equality, got %#v", equalExpr.Right)
+	}
+	addExpr, ok := shiftExpr.Right.(*AstBinaryExpr)
+	if !ok || addExpr.Op != BinaryAdd {
+		t.Fatalf("expected addition below shift, got %#v", shiftExpr.Right)
+	}
+
+	ret := program.Functions[0].Body.Statements[1].(*AstReturnStmt)
+	moduloExpr, ok := ret.Value.(*AstBinaryExpr)
+	if !ok || moduloExpr.Op != BinaryModulo {
+		t.Fatalf("expected top-level modulo expression, got %#v", ret.Value)
+	}
+	logicalNot, ok := moduloExpr.Left.(*AstUnaryExpr)
+	if !ok || logicalNot.Op != UnaryLogicalNot {
+		t.Fatalf("expected logical-not expression, got %#v", moduloExpr.Left)
+	}
+	bitwiseNot, ok := logicalNot.Operand.(*AstUnaryExpr)
+	if !ok || bitwiseNot.Op != UnaryBitwiseNot {
+		t.Fatalf("expected bitwise-not expression, got %#v", logicalNot.Operand)
+	}
+	negate, ok := bitwiseNot.Operand.(*AstUnaryExpr)
+	if !ok || negate.Op != UnaryNegate {
+		t.Fatalf("expected negate expression, got %#v", bitwiseNot.Operand)
+	}
+}
+
+func TestParseReportsReservedExpressionPunctuators(t *testing.T) {
+	tests := []struct {
+		expression string
+		message    string
+	}{
+		{"value[0]", "array indexing"},
+		{"value.member", "member access"},
+		{"value->member", "member access"},
+		{"value::member", "qualified names"},
+		{"value ? 1 : 0", "ternary expressions"},
+		{"value++", "increment and decrement"},
+		{"#value", "preprocessor syntax"},
+	}
+	for _, test := range tests {
+		script := "int value; int script_main() { return " + test.expression + "; }"
+		tokens, err := Tokenize(script)
+		if err != nil {
+			t.Fatalf("Tokenize %q failed: %v", test.expression, err)
+		}
+		_, err = Parse(tokens)
+		if err == nil || !strings.Contains(err.Error(), test.message) {
+			t.Fatalf("expected %q error for %q, got %v", test.message, test.expression, err)
+		}
 	}
 }
 

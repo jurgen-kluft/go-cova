@@ -2,120 +2,236 @@ package cova
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 type TokenKind int
 
 const (
 	TokEOF TokenKind = iota
-	TokKeyword
 	TokIdent
-	TokNum
 	TokString
-	TokOp
-	TokDelimiter
+	TokInteger
+	TokFloat32
+	TokFloat64
+	TokNewline
+
+	TokBreak
+	TokCase
+	TokConst
+	TokContinue
+	TokDefault
+	TokElse
+	TokExtern
+	TokFalse
+	TokBool
+	TokByte
+	TokFloat32Type
+	TokFloat64Type
+	TokFor
+	TokIf
+	TokInt8
+	TokInt16
+	TokInt32
+	TokInt64
+	TokReturn
+	TokSwitch
+	TokTrue
+	TokUint8
+	TokUint16
+	TokUint32
+	TokUint64
+	TokVoid
+	TokWhile
+	TokInt
+	TokFloat
+
+	TokPlus
+	TokMinus
+	TokStar
+	TokSlash
+	TokPercent
+	TokIncrement
+	TokDecrement
+	TokArrow
+	TokEqual
+	TokNotEqual
+	TokLess
+	TokLessEqual
+	TokGreater
+	TokGreaterEqual
+	TokLogicalAnd
+	TokLogicalOr
+	TokShiftLeft
+	TokShiftRight
+	TokAssign
+	TokPlusAssign
+	TokMinusAssign
+	TokStarAssign
+	TokSlashAssign
+	TokPercentAssign
+	TokShiftLeftAssign
+	TokShiftRightAssign
+	TokAndAssign
+	TokOrAssign
+	TokXorAssign
+	TokAmp
+	TokPipe
+	TokCaret
+	TokTilde
+	TokBang
+
+	TokLParen
+	TokRParen
+	TokLBrace
+	TokRBrace
+	TokLBracket
+	TokRBracket
+	TokSemicolon
+	TokComma
+	TokColon
+	TokColonColon
+	TokDot
+	TokEllipsis
+	TokQuestion
+	TokHash
+	TokHashHash
 )
 
 type Token struct {
-	Kind  TokenKind
-	Value string
-	Line  int
+	Kind       TokenKind
+	Text       string
+	IntValue   int64
+	FloatValue float64
+	Line       int
+	Column     int
+	Offset     int
+	Length     int
 }
 
-var keywords = map[string]struct{}{
-	"break":   {},
-	"case":    {},
-	"const":   {},
-	"continue": {},
-	"default": {},
-	"else":    {},
-	"extern":  {},
-	"false":   {},
-	"bool":    {},
-	"byte":    {},
-	"float32": {},
-	"float64": {},
-	"for":     {},
-	"if":      {},
-	"int8":    {},
-	"int16":   {},
-	"int32":   {},
-	"int64":   {},
-	"return":  {},
-	"switch":  {},
-	"true":    {},
-	"uint8":   {},
-	"uint16":  {},
-	"uint32":  {},
-	"uint64":  {},
-	"void":    {},
-	"while":   {},
-	"int":     {}, // alias for int32
-	"float":   {}, // alias for float32
+var keywords = map[string]TokenKind{
+	"break": TokBreak, "case": TokCase, "const": TokConst, "continue": TokContinue,
+	"default": TokDefault, "else": TokElse, "extern": TokExtern, "false": TokFalse,
+	"bool": TokBool, "byte": TokByte, "float32": TokFloat32Type, "float64": TokFloat64Type,
+	"for": TokFor, "if": TokIf, "int8": TokInt8, "int16": TokInt16, "int32": TokInt32,
+	"int64": TokInt64, "return": TokReturn, "switch": TokSwitch, "true": TokTrue,
+	"uint8": TokUint8, "uint16": TokUint16, "uint32": TokUint32, "uint64": TokUint64,
+	"void": TokVoid, "while": TokWhile, "int": TokInt, "float": TokFloat,
 }
 
 func Tokenize(src string) ([]Token, error) {
 	tokens := make([]Token, 0, len(src)/2)
 	line := 1
+	column := 1
 
 	for index := 0; index < len(src); {
-		char := rune(src[index])
+		char, charWidth := utf8.DecodeRuneInString(src[index:])
+		startLine := line
+		startColumn := column
 
 		switch {
-		case char == '\n':
+		case char == '\n' || char == '\r':
+			width := charWidth
+			if char == '\r' && index+charWidth < len(src) && src[index+charWidth] == '\n' {
+				width++
+			}
+			tokens = append(tokens, Token{Kind: TokNewline, Line: line, Column: column, Offset: index, Length: width})
 			line++
-			index++
+			column = 1
+			index += width
 		case unicode.IsSpace(char):
-			index++
+			index += charWidth
+			column++
 		case char == '/' && index+1 < len(src) && src[index+1] == '/':
 			index += 2
-			for index < len(src) && src[index] != '\n' {
+			column += 2
+			for index < len(src) && src[index] != '\n' && src[index] != '\r' {
 				index++
+				column++
+			}
+		case char == '/' && index+1 < len(src) && src[index+1] == '*':
+			index += 2
+			column += 2
+			closed := false
+			for index < len(src) {
+				if index+1 < len(src) && src[index] == '*' && src[index+1] == '/' {
+					index += 2
+					column += 2
+					closed = true
+					break
+				}
+				if src[index] == '\n' || src[index] == '\r' {
+					if src[index] == '\r' && index+1 < len(src) && src[index+1] == '\n' {
+						index++
+					}
+					line++
+					column = 1
+					index++
+					continue
+				}
+				index++
+				column++
+			}
+			if !closed {
+				return nil, fmt.Errorf("lex error on line %d, column %d: unterminated block comment", startLine, startColumn)
 			}
 		case isIdentStart(char):
 			start := index
-			index++
-			for index < len(src) && isIdentPart(rune(src[index])) {
-				index++
+			index += charWidth
+			column++
+			for index < len(src) {
+				part, width := utf8.DecodeRuneInString(src[index:])
+				if !isIdentPart(part) {
+					break
+				}
+				index += width
+				column++
 			}
 			value := src[start:index]
 			kind := TokIdent
-			if _, ok := keywords[value]; ok {
-				kind = TokKeyword
+			if keywordKind, ok := keywords[value]; ok {
+				kind = keywordKind
 			}
-			tokens = append(tokens, Token{Kind: kind, Value: value, Line: line})
+			tokens = append(tokens, Token{Kind: kind, Text: value, Line: startLine, Column: startColumn, Offset: start, Length: index - start})
 		case unicode.IsDigit(char):
-			token, newIndex, err := tokenizeNumericLiteral(src, index, line)
+			token, newIndex, err := tokenizeNumericLiteral(src, index, line, column)
 			if err != nil {
 				return nil, err
 			}
 			tokens = append(tokens, token)
+			column += newIndex - index
 			index = newIndex
 		case char == '"':
-			token, newIndex, err := tokenizeStringLiteral(src, index, line)
+			token, newIndex, err := tokenizeStringLiteral(src, index, line, column)
 			if err != nil {
 				return nil, err
 			}
 			tokens = append(tokens, token)
+			column += newIndex - index
 			index = newIndex
 		case isOperator(char):
 			value, width := tokenizeOperator(src, index)
-			tokens = append(tokens, Token{Kind: TokOp, Value: value, Line: line})
+			tokens = append(tokens, Token{Kind: operatorKinds[value], Line: line, Column: column, Offset: index, Length: width})
 			index += width
+			column += width
 		case isDelimiter(char):
-			tokens = append(tokens, Token{Kind: TokDelimiter, Value: string(char), Line: line})
-			index++
+			value, width := tokenizeDelimiter(src, index)
+			tokens = append(tokens, Token{Kind: delimiterKinds[value], Line: line, Column: column, Offset: index, Length: width})
+			index += width
+			column += width
 		default:
-			return nil, fmt.Errorf("lex error on line %d: unrecognized symbol %q", line, string(char))
+			return nil, fmt.Errorf("lex error on line %d, column %d: unrecognized symbol %q", line, column, string(char))
 		}
 	}
 
-	tokens = append(tokens, Token{Kind: TokEOF, Line: line})
+	tokens = append(tokens, Token{Kind: TokEOF, Line: line, Column: column, Offset: len(src)})
 	return tokens, nil
 }
 
-func tokenizeNumericLiteral(src string, start int, line int) (Token, int, error) {
+func tokenizeNumericLiteral(src string, start int, line int, column int) (Token, int, error) {
 	index := start
 	for index < len(src) && unicode.IsDigit(rune(src[index])) {
 		index++
@@ -123,7 +239,7 @@ func tokenizeNumericLiteral(src string, start int, line int) (Token, int, error)
 	if index < len(src) && src[index] == '.' {
 		index++
 		if index >= len(src) || !unicode.IsDigit(rune(src[index])) {
-			return Token{}, index, fmt.Errorf("lex error on line %d: invalid numeric literal", line)
+			return Token{}, index, fmt.Errorf("lex error on line %d, column %d: invalid numeric literal", line, column)
 		}
 		for index < len(src) && unicode.IsDigit(rune(src[index])) {
 			index++
@@ -135,29 +251,54 @@ func tokenizeNumericLiteral(src string, start int, line int) (Token, int, error)
 			index++
 		}
 		if index >= len(src) || !unicode.IsDigit(rune(src[index])) {
-			return Token{}, index, fmt.Errorf("lex error on line %d: invalid numeric literal", line)
+			return Token{}, index, fmt.Errorf("lex error on line %d, column %d: invalid numeric literal", line, column)
 		}
 		for index < len(src) && unicode.IsDigit(rune(src[index])) {
 			index++
 		}
 	}
+	kind := TokInteger
+	if strings.ContainsAny(src[start:index], ".eE") {
+		kind = TokFloat32
+	}
 	if index < len(src) {
 		switch src[index] {
-		case 'f', 'F', 'd', 'D':
+		case 'f', 'F':
+			kind = TokFloat32
+			index++
+		case 'd', 'D':
+			kind = TokFloat64
 			index++
 		}
 	}
-	return Token{Kind: TokNum, Value: src[start:index], Line: line}, index, nil
+	value := src[start:index]
+	token := Token{Kind: kind, Line: line, Column: column, Offset: start, Length: index - start}
+	if kind == TokInteger {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return Token{}, index, fmt.Errorf("lex error on line %d, column %d: invalid integer literal %q", line, column, value)
+		}
+		token.IntValue = parsed
+		return token, index, nil
+	}
+	floatText := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(value, "f"), "F"), "d"), "D")
+	parsed, err := strconv.ParseFloat(floatText, 64)
+	if err != nil {
+		return Token{}, index, fmt.Errorf("lex error on line %d, column %d: invalid float literal %q", line, column, value)
+	}
+	token.FloatValue = parsed
+	return token, index, nil
 }
 
-func tokenizeStringLiteral(src string, start int, line int) (Token, int, error) {
+func tokenizeStringLiteral(src string, start int, line int, column int) (Token, int, error) {
 	index := start + 1
 	value := make([]rune, 0, 16)
 	for index < len(src) {
 		char := rune(src[index])
 		switch char {
 		case '"':
-			return Token{Kind: TokString, Value: string(value), Line: line}, index + 1, nil
+			text := string(value)
+			return Token{Kind: TokString, Text: text, Line: line, Column: column, Offset: start, Length: index + 1 - start}, index + 1, nil
 		case '\\':
 			if index+1 >= len(src) {
 				return Token{}, index, fmt.Errorf("lex error on line %d: unterminated string literal", line)
@@ -200,17 +341,37 @@ func isIdentPart(char rune) bool {
 
 func isOperator(char rune) bool {
 	switch char {
-	case '+', '-', '*', '/', '=', '!', '<', '>', '&', '|':
+	case '+', '-', '*', '/', '%', '=', '!', '<', '>', '&', '|', '^', '~':
 		return true
 	default:
 		return false
 	}
 }
 
+var operatorKinds = map[string]TokenKind{
+	"+": TokPlus, "-": TokMinus, "*": TokStar, "/": TokSlash, "%": TokPercent,
+	"++": TokIncrement, "--": TokDecrement, "->": TokArrow,
+	"==": TokEqual, "!=": TokNotEqual, "<": TokLess, "<=": TokLessEqual,
+	">": TokGreater, ">=": TokGreaterEqual, "&&": TokLogicalAnd, "||": TokLogicalOr,
+	"<<": TokShiftLeft, ">>": TokShiftRight, "=": TokAssign,
+	"+=": TokPlusAssign, "-=": TokMinusAssign, "*=": TokStarAssign, "/=": TokSlashAssign,
+	"%=": TokPercentAssign, "<<=": TokShiftLeftAssign, ">>=": TokShiftRightAssign,
+	"&=": TokAndAssign, "|=": TokOrAssign, "^=": TokXorAssign,
+	"&": TokAmp, "|": TokPipe, "^": TokCaret, "~": TokTilde, "!": TokBang,
+}
+
 func tokenizeOperator(src string, index int) (string, int) {
+	if index+2 < len(src) {
+		switch src[index : index+3] {
+		case "<<=", ">>=":
+			return src[index : index+3], 3
+		}
+	}
 	if index+1 < len(src) {
 		switch src[index : index+2] {
-		case "==", "!=", "<=", ">=", "&&", "||":
+		case "++", "--", "->",
+			"==", "!=", "<=", ">=", "&&", "||", "<<", ">>",
+			"+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=":
 			return src[index : index+2], 2
 		}
 	}
@@ -219,9 +380,43 @@ func tokenizeOperator(src string, index int) (string, int) {
 
 func isDelimiter(char rune) bool {
 	switch char {
-	case '(', ')', '{', '}', ';', ',', ':':
+	case '(', ')', '{', '}', '[', ']', ';', ',', ':', '.', '?', '#':
 		return true
 	default:
 		return false
 	}
+}
+
+var delimiterKinds = map[string]TokenKind{
+	"(": TokLParen, ")": TokRParen, "{": TokLBrace, "}": TokRBrace,
+	"[": TokLBracket, "]": TokRBracket, ";": TokSemicolon, ",": TokComma,
+	":": TokColon, "::": TokColonColon, ".": TokDot, "...": TokEllipsis,
+	"?": TokQuestion, "#": TokHash, "##": TokHashHash,
+}
+
+var tokenSpellings = func() map[TokenKind]string {
+	spellings := make(map[TokenKind]string, len(keywords)+len(operatorKinds)+len(delimiterKinds))
+	for spelling, kind := range keywords {
+		spellings[kind] = spelling
+	}
+	for spelling, kind := range operatorKinds {
+		spellings[kind] = spelling
+	}
+	for spelling, kind := range delimiterKinds {
+		spellings[kind] = spelling
+	}
+	return spellings
+}()
+
+func tokenizeDelimiter(src string, index int) (string, int) {
+	if index+2 < len(src) && src[index:index+3] == "..." {
+		return src[index : index+3], 3
+	}
+	if index+1 < len(src) {
+		switch src[index : index+2] {
+		case "::", "##":
+			return src[index : index+2], 2
+		}
+	}
+	return src[index : index+1], 1
 }

@@ -74,7 +74,7 @@ void script_main() {
 	}
 }
 
-func TestInstructionEncodingUsesSixBitOpcodePayload(t *testing.T) {
+func TestInstructionEncodingUsesFiveBitOpcodePayload(t *testing.T) {
 	legacyInstruction := makeInstruction(OpPush, KindInt16, ModeExtend, FlagSigned)
 	if op := legacyInstruction.Opcode(); op != OpPush {
 		t.Fatalf("expected OpPush opcode, got %d", op)
@@ -1310,5 +1310,46 @@ int script_main() {
 	}
 	if result != 10 {
 		t.Fatalf("expected result 10, got %d", result)
+	}
+}
+
+func TestRunBitwiseShiftModuloUnaryAndCompoundOperators(t *testing.T) {
+	script := `
+int script_main() {
+	int value = 10;
+	value += 5;
+	value *= 2;
+	value %= 7;
+	value <<= 3;
+	value |= 3;
+	value ^= 5;
+	value &= 30;
+	value >>= 1;
+	value -= 1;
+	value /= 2;
+	return value + (~0 & 7) + (!0 * 10) + -2;
+}
+`
+	linked := mustLinkProgram(t, script, 0, 0)
+	vm := NewVM(testFrameCapacityBytes)
+	if status := vm.Run(linked); status != VMStatusOK {
+		t.Fatalf("Run failed: %s", status)
+	}
+	if result, status := vm.PopInt32(); status != VMStatusOK || result != 20 {
+		t.Fatalf("expected result 20, got %d status=%s", result, status)
+	}
+}
+
+func TestCompileRejectsFloatBitwiseOperator(t *testing.T) {
+	tokens, err := Tokenize(`float script_main() { return 1.5 & 1; }`)
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+	program, err := Parse(tokens)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	if _, err := NewCompiler().Compile(program); err == nil || !strings.Contains(err.Error(), "requires integer operands") {
+		t.Fatalf("expected integer operand compile error, got %v", err)
 	}
 }

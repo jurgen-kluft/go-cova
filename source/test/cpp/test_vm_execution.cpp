@@ -84,6 +84,71 @@ UNITTEST_SUITE_BEGIN(cova_vm_execution)
             CHECK_EQUAL((u32)0, vm.m_call_frame_count);
         }
 
+        UNITTEST_TEST(bitwise_modulo_and_masked_shifts)
+        {
+            byte text_storage[128] = {};
+            segment_memory_t text = {text_storage, 0, 128};
+            emit_push_u32(&text, KindInt32, 29);
+            emit_push_u32(&text, KindInt32, 6);
+            emit_instruction(&text, make_arithmetic_instruction(KindInt32, ArithmeticModulo));
+            emit_push_u32(&text, KindInt32, 3);
+            emit_instruction(&text, make_arithmetic_instruction(KindInt32, ArithmeticBitwiseAnd));
+            emit_push_u32(&text, KindInt32, 8);
+            emit_instruction(&text, make_arithmetic_instruction(KindInt32, ArithmeticBitwiseOr));
+            emit_push_u32(&text, KindInt32, 1);
+            emit_instruction(&text, make_arithmetic_instruction(KindInt32, ArithmeticBitwiseXor));
+            emit_push_u32(&text, KindInt32, 35);
+            emit_instruction(&text, make_arithmetic_instruction(KindInt32, ArithmeticShiftLeft));
+            emit_push_u32(&text, KindInt32, (u32)-1);
+            emit_instruction(&text, make_arithmetic_instruction(KindInt32, ArithmeticMul));
+            emit_push_u32(&text, KindInt32, 34);
+            emit_instruction(&text, make_arithmetic_instruction(KindInt32, ArithmeticShiftRight));
+            emit_instruction(&text, make_instruction(OpRet, KindNone));
+
+            const script_function_t functions[] = {{0, 0, 0, 0, KindInt32}};
+            linked_program_t program;
+            initialize_program(&program, text_storage, text.m_size, functions, 1);
+
+            byte frame[64] = {}, bss[16] = {}, external[16] = {}, data[16] = {}, stack[64] = {};
+            call_frame_t call_frames[8] = {};
+            vm_t vm;
+            initialize_test_vm(&vm, call_frames, frame, bss, external, data, stack);
+            run_vm(&vm, &program);
+
+            CHECK_EQUAL((u64)(u32)-16, pop_bits(&vm, KindInt32));
+        }
+
+        UNITTEST_TEST(math_builtins)
+        {
+            byte text_storage[128] = {};
+            segment_memory_t text = {text_storage, 0, 128};
+            emit_push_u32(&text, KindInt32, (u32)-7);
+            emit_instruction(&text, make_builtin_instruction(make_builtin_function(BuiltInAbs, KindInt32)));
+            emit_instruction(&text, make_instruction(OpPush, KindFloat32));
+            append_u32(&text, f32_to_bits(9.0f));
+            emit_instruction(&text, make_builtin_instruction(make_builtin_function(BuiltInSqrt, KindFloat32)));
+            emit_instruction(&text, make_instruction(OpPush, KindFloat64));
+            append_u64(&text, f64_to_bits(2.0));
+            emit_instruction(&text, make_instruction(OpPush, KindFloat64));
+            append_u64(&text, f64_to_bits(3.0));
+            emit_instruction(&text, make_builtin_instruction(make_builtin_function(BuiltInPow, KindFloat64)));
+            emit_instruction(&text, make_instruction(OpRet, KindNone));
+
+            const script_function_t functions[] = {{0, 0, 0, 0, KindVoid}};
+            linked_program_t program;
+            initialize_program(&program, text_storage, text.m_size, functions, 1);
+
+            byte frame[64] = {}, bss[16] = {}, external[16] = {}, data[16] = {}, stack[64] = {};
+            call_frame_t call_frames[8] = {};
+            vm_t vm;
+            initialize_test_vm(&vm, call_frames, frame, bss, external, data, stack);
+            run_vm(&vm, &program);
+
+            CHECK_EQUAL((f64)8.0, bits_to_f64(pop_bits(&vm, KindFloat64)));
+            CHECK_EQUAL((f32)3.0f, bits_to_f32((u32)pop_bits(&vm, KindFloat32)));
+            CHECK_EQUAL((u64)7, pop_bits(&vm, KindInt32));
+        }
+
         UNITTEST_TEST(address_offset_assign_and_dereference)
         {
             byte text_storage[128] = {};

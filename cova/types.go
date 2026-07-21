@@ -224,18 +224,58 @@ const (
 	OpCall
 	OpCallExtern
 	OpRet
+	OpBuiltIn
 	OpcodeCount
 )
 
+type BuiltInFunction uint16
+
+const (
+	BuiltInInvalid BuiltInFunction = iota
+)
+
+type BuiltInOperation byte
+
+const (
+	BuiltInOperationInvalid BuiltInOperation = iota
+	BuiltInAbs
+	BuiltInSin
+	BuiltInCos
+	BuiltInTan
+	BuiltInAsin
+	BuiltInAcos
+	BuiltInAtan
+	BuiltInPow
+	BuiltInSqrt
+)
+
+func makeBuiltInFunction(operation BuiltInOperation, kind ValueKind) BuiltInFunction {
+	return BuiltInFunction(uint16(operation&0x7f)<<4 | uint16(kind&0x0f))
+}
+
+func (function BuiltInFunction) Operation() BuiltInOperation {
+	return BuiltInOperation((function >> 4) & 0x7f)
+}
+
+func (function BuiltInFunction) Kind() ValueKind {
+	return ValueKind(function & 0x0f)
+}
+
 type ArithmeticOp byte
 
-// Note: Keep the number of arithmetic operations below 8 to fit in 3 bits of the instruction encoding.
+// Note: Keep arithmetic operations below 64 to fit in the 6-bit instruction field.
 const (
 	ArithmeticInvalid ArithmeticOp = iota
 	ArithmeticAdd
 	ArithmeticSub
 	ArithmeticMul
 	ArithmeticDiv
+	ArithmeticModulo
+	ArithmeticBitwiseAnd
+	ArithmeticBitwiseOr
+	ArithmeticBitwiseXor
+	ArithmeticShiftLeft
+	ArithmeticShiftRight
 )
 
 type CompareOp byte

@@ -11,19 +11,20 @@ func TestTokenizeComparisonOperators(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tokenize failed: %v", err)
 	}
-	var operators []string
+	var operators []TokenKind
 	for _, token := range tokens {
-		if token.Kind == TokOp {
-			operators = append(operators, token.Value)
+		switch token.Kind {
+		case TokEqual, TokNotEqual, TokLessEqual, TokGreaterEqual:
+			operators = append(operators, token.Kind)
 		}
 	}
-	expected := []string{"==", "!=", "<=", ">="}
+	expected := []TokenKind{TokEqual, TokNotEqual, TokLessEqual, TokGreaterEqual}
 	if len(operators) != len(expected) {
 		t.Fatalf("expected %d operators, got %d (%v)", len(expected), len(operators), operators)
 	}
 	for index, want := range expected {
 		if operators[index] != want {
-			t.Fatalf("expected operator %d to be %q, got %q", index, want, operators[index])
+			t.Fatalf("expected operator %d to have kind %d, got %d", index, want, operators[index])
 		}
 	}
 }
@@ -34,19 +35,49 @@ func TestTokenizeLogicalOperators(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tokenize failed: %v", err)
 	}
-	var operators []string
+	var operators []TokenKind
 	for _, token := range tokens {
-		if token.Kind == TokOp {
-			operators = append(operators, token.Value)
+		if token.Kind == TokLogicalAnd || token.Kind == TokLogicalOr {
+			operators = append(operators, token.Kind)
 		}
 	}
-	expected := []string{"&&", "||"}
+	expected := []TokenKind{TokLogicalAnd, TokLogicalOr}
 	if len(operators) != len(expected) {
 		t.Fatalf("expected %d operators, got %d (%v)", len(expected), len(operators), operators)
 	}
 	for index, want := range expected {
 		if operators[index] != want {
-			t.Fatalf("expected operator %d to be %q, got %q", index, want, operators[index])
+			t.Fatalf("expected operator %d to have kind %d, got %d", index, want, operators[index])
+		}
+	}
+}
+
+func TestTokenizeCStyleOperatorsAndPunctuators(t *testing.T) {
+	src := "+ - * / % ++ -- -> == != <= >= && || << >> += -= *= /= %= <<= >>= &= |= ^= & | ^ ~ = < > ! " +
+		"( ) { } [ ] ; , : :: . ... ? # ##"
+	tokens, err := Tokenize(src)
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+
+	expected := []TokenKind{
+		TokPlus, TokMinus, TokStar, TokSlash, TokPercent,
+		TokIncrement, TokDecrement, TokArrow,
+		TokEqual, TokNotEqual, TokLessEqual, TokGreaterEqual,
+		TokLogicalAnd, TokLogicalOr, TokShiftLeft, TokShiftRight,
+		TokPlusAssign, TokMinusAssign, TokStarAssign, TokSlashAssign, TokPercentAssign,
+		TokShiftLeftAssign, TokShiftRightAssign, TokAndAssign, TokOrAssign, TokXorAssign,
+		TokAmp, TokPipe, TokCaret, TokTilde, TokAssign, TokLess, TokGreater, TokBang,
+		TokLParen, TokRParen, TokLBrace, TokRBrace, TokLBracket, TokRBracket,
+		TokSemicolon, TokComma, TokColon, TokColonColon, TokDot, TokEllipsis,
+		TokQuestion, TokHash, TokHashHash,
+	}
+	if len(tokens) != len(expected)+1 {
+		t.Fatalf("expected %d tokens plus eof, got %d", len(expected), len(tokens))
+	}
+	for index, want := range expected {
+		if tokens[index].Kind != want {
+			t.Fatalf("token %d: expected kind=%d, got kind=%d", index, want, tokens[index].Kind)
 		}
 	}
 }
@@ -59,7 +90,7 @@ func TestTokenizeColonDelimiter(t *testing.T) {
 	}
 	colonCount := 0
 	for _, token := range tokens {
-		if token.Kind == TokDelimiter && token.Value == ":" {
+		if token.Kind == TokColon {
 			colonCount++
 		}
 	}
@@ -74,17 +105,14 @@ func TestTokenizeControlFlowKeywords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tokenize failed: %v", err)
 	}
-	expected := []string{"break", "case", "continue", "default", "else", "for", "switch", "while"}
+	expected := []TokenKind{TokBreak, TokCase, TokContinue, TokDefault, TokElse, TokFor, TokSwitch, TokWhile}
 	if len(tokens) != len(expected)+1 {
 		t.Fatalf("expected %d tokens plus eof, got %d", len(expected), len(tokens))
 	}
 	for index, want := range expected {
 		token := tokens[index]
-		if token.Kind != TokKeyword {
-			t.Fatalf("expected token %d (%q) to be keyword, got kind %d", index, want, token.Kind)
-		}
-		if token.Value != want {
-			t.Fatalf("expected token %d value %q, got %q", index, want, token.Value)
+		if token.Kind != want {
+			t.Fatalf("expected token %d to have kind %d, got %d", index, want, token.Kind)
 		}
 	}
 }
@@ -98,8 +126,8 @@ func TestTokenizeConstKeyword(t *testing.T) {
 	if len(tokens) != 2 {
 		t.Fatalf("expected const plus eof, got %d tokens", len(tokens))
 	}
-	if tokens[0].Kind != TokKeyword || tokens[0].Value != "const" {
-		t.Fatalf("expected const keyword token, got kind=%d value=%q", tokens[0].Kind, tokens[0].Value)
+	if tokens[0].Kind != TokConst || tokens[0].Text != "const" {
+		t.Fatalf("expected const keyword token, got kind=%d text=%q", tokens[0].Kind, tokens[0].Text)
 	}
 }
 
@@ -109,17 +137,14 @@ func TestTokenizeBooleanLiteralKeywords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tokenize failed: %v", err)
 	}
-	expected := []string{"true", "false"}
+	expected := []TokenKind{TokTrue, TokFalse}
 	if len(tokens) != len(expected)+1 {
 		t.Fatalf("expected %d tokens plus eof, got %d", len(expected), len(tokens))
 	}
 	for index, want := range expected {
 		token := tokens[index]
-		if token.Kind != TokKeyword {
-			t.Fatalf("expected token %d (%q) to be keyword, got kind %d", index, want, token.Kind)
-		}
-		if token.Value != want {
-			t.Fatalf("expected token %d value %q, got %q", index, want, token.Value)
+		if token.Kind != want {
+			t.Fatalf("expected token %d to have kind %d, got %d", index, want, token.Kind)
 		}
 	}
 }
@@ -130,11 +155,12 @@ func TestTokenizeNumericLiteralSupportsIntegerFloatAndScientific(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tokenize failed: %v", err)
 	}
-	values := []string{tokens[0].Value, tokens[1].Value, tokens[2].Value, tokens[3].Value, tokens[4].Value}
-	expected := []string{"1", "2.5", "6e3", "7.25e-2", "8E+4"}
-	for index, want := range expected {
-		if values[index] != want {
-			t.Fatalf("expected token %d value %q, got %q", index, want, values[index])
+	if tokens[0].Kind != TokInteger || tokens[0].IntValue != 1 {
+		t.Fatalf("expected integer payload 1, got kind=%d value=%d", tokens[0].Kind, tokens[0].IntValue)
+	}
+	for index, want := range []float64{2.5, 6000, 0.0725, 80000} {
+		if token := tokens[index+1]; token.Kind != TokFloat32 || token.FloatValue != want {
+			t.Fatalf("expected float32 token %d value %v, got kind=%d value=%v", index+1, want, token.Kind, token.FloatValue)
 		}
 	}
 }
@@ -145,11 +171,10 @@ func TestTokenizeNumericLiteralSupportsFloatSuffixes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tokenize failed: %v", err)
 	}
-	values := []string{tokens[0].Value, tokens[1].Value, tokens[2].Value, tokens[3].Value, tokens[4].Value}
-	expected := []string{"0.5", "1.5f", "2.5d", "6e3F", "7.25E-2D"}
-	for index, want := range expected {
-		if values[index] != want {
-			t.Fatalf("expected token %d value %q, got %q", index, want, values[index])
+	expectedKinds := []TokenKind{TokFloat32, TokFloat32, TokFloat64, TokFloat32, TokFloat64}
+	for index, want := range expectedKinds {
+		if tokens[index].Kind != want {
+			t.Fatalf("expected token %d kind %d, got %d", index, want, tokens[index].Kind)
 		}
 	}
 }
@@ -174,8 +199,8 @@ func TestTokenizeStringLiteralSupportsEscapes(t *testing.T) {
 	if tokens[0].Kind != TokString {
 		t.Fatalf("expected first token kind %d, got %d", TokString, tokens[0].Kind)
 	}
-	if want := "asset\npath\"\\tail"; tokens[0].Value != want {
-		t.Fatalf("expected decoded string %q, got %q", want, tokens[0].Value)
+	if want := "asset\npath\"\\tail"; tokens[0].Text != want {
+		t.Fatalf("expected decoded string %q, got %q", want, tokens[0].Text)
 	}
 }
 
@@ -186,5 +211,55 @@ func TestTokenizeStringLiteralRejectsUnterminatedLiteral(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unterminated string literal") {
 		t.Fatalf("expected unterminated string error, got %v", err)
+	}
+}
+
+func TestTokenizeNewlinesCommentsAndSpans(t *testing.T) {
+	src := "one\r\ntwo // comment\n/* block\ncomment */ three"
+	tokens, err := Tokenize(src)
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+	expected := []TokenKind{TokIdent, TokNewline, TokIdent, TokNewline, TokIdent, TokEOF}
+	if len(tokens) != len(expected) {
+		t.Fatalf("expected %d tokens, got %d", len(expected), len(tokens))
+	}
+	for index, want := range expected {
+		if tokens[index].Kind != want {
+			t.Fatalf("token %d: expected kind %d, got %d", index, want, tokens[index].Kind)
+		}
+	}
+	if token := tokens[1]; token.Line != 1 || token.Column != 4 || token.Offset != 3 || token.Length != 2 {
+		t.Fatalf("unexpected CRLF span: %+v", token)
+	}
+	if token := tokens[4]; token.Text != "three" || token.Line != 4 || token.Column != 12 {
+		t.Fatalf("unexpected token after block comment: %+v", token)
+	}
+}
+
+func TestTokenizeCommentsTrackCRLineEndings(t *testing.T) {
+	src := "// line\rone\r/* block\r\ntwo */three"
+	tokens, err := Tokenize(src)
+	if err != nil {
+		t.Fatalf("Tokenize failed: %v", err)
+	}
+	expected := []TokenKind{TokNewline, TokIdent, TokNewline, TokIdent, TokEOF}
+	if len(tokens) != len(expected) {
+		t.Fatalf("expected %d tokens, got %d", len(expected), len(tokens))
+	}
+	for index, want := range expected {
+		if tokens[index].Kind != want {
+			t.Fatalf("token %d: expected kind %d, got %d", index, want, tokens[index].Kind)
+		}
+	}
+	if token := tokens[3]; token.Text != "three" || token.Line != 4 || token.Column != 7 {
+		t.Fatalf("unexpected token after CR comments: %+v", token)
+	}
+}
+
+func TestTokenizeRejectsUnterminatedBlockComment(t *testing.T) {
+	_, err := Tokenize("value /* missing")
+	if err == nil || !strings.Contains(err.Error(), "unterminated block comment") {
+		t.Fatalf("expected unterminated block comment error, got %v", err)
 	}
 }

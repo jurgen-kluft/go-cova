@@ -166,6 +166,13 @@ func (optimizer *optimizer) optimizeStmt(statement AstStmtNode) error {
 
 func (optimizer *optimizer) optimizeExpr(expression AstExprNode, expected *Type) (AstExprNode, error) {
 	switch node := expression.(type) {
+	case *AstUnaryExpr:
+		operand, err := optimizer.optimizeExpr(node.Operand, optimizer.exprType(node.Operand))
+		if err != nil {
+			return nil, err
+		}
+		node.Operand = operand
+		return node, nil
 	case *AstBinaryExpr:
 		return optimizer.optimizeBinary(node, expected)
 	case *AstCallExpr:
@@ -217,7 +224,7 @@ func (optimizer *optimizer) optimizeBinary(node *AstBinaryExpr, expected *Type) 
 	rightConstant := optimizerLiteralBits(rightLiteral, constantKind)
 	if optimizerIsComparison(node.Op) {
 		value := optimizerCompare(constantKind, node.Op, leftConstant, rightConstant)
-		return &AstNumberLiteral{IntValue: value, Line: node.Line}, nil
+		return &AstNumberLiteral{IntValue: value, IsBool: true, Line: node.Line}, nil
 	}
 	bits, err := optimizerArithmetic(constantKind, node.Op, leftConstant, rightConstant)
 	if err != nil {
@@ -235,7 +242,7 @@ func (optimizer *optimizer) optimizeLogical(node *AstBinaryExpr) (AstExprNode, e
 	if literal, ok := left.(*AstNumberLiteral); ok {
 		truth := optimizerLiteralBits(literal, optimizerInt32) != 0
 		if (node.Op == "&&" && !truth) || (node.Op == "||" && truth) {
-			return &AstNumberLiteral{IntValue: optimizerBoolInt(truth), Line: node.Line}, nil
+			return &AstNumberLiteral{IntValue: optimizerBoolInt(truth), IsBool: true, Line: node.Line}, nil
 		}
 	}
 	right, err := optimizer.optimizeExpr(node.Right, Int32Type)
@@ -251,14 +258,17 @@ func (optimizer *optimizer) optimizeLogical(node *AstBinaryExpr) (AstExprNode, e
 	leftTruth := optimizerLiteralBits(leftLiteral, optimizerInt32) != 0
 	rightTruth := optimizerLiteralBits(rightLiteral, optimizerInt32) != 0
 	if node.Op == "&&" {
-		return &AstNumberLiteral{IntValue: optimizerBoolInt(leftTruth && rightTruth), Line: node.Line}, nil
+		return &AstNumberLiteral{IntValue: optimizerBoolInt(leftTruth && rightTruth), IsBool: true, Line: node.Line}, nil
 	}
-	return &AstNumberLiteral{IntValue: optimizerBoolInt(leftTruth || rightTruth), Line: node.Line}, nil
+	return &AstNumberLiteral{IntValue: optimizerBoolInt(leftTruth || rightTruth), IsBool: true, Line: node.Line}, nil
 }
 
 func (optimizer *optimizer) exprType(expression AstExprNode) *Type {
 	switch node := expression.(type) {
 	case *AstNumberLiteral:
+		if node.IsBool {
+			return BoolType
+		}
 		if node.IsFloat {
 			if node.FloatType != nil {
 				return node.FloatType
@@ -273,12 +283,17 @@ func (optimizer *optimizer) exprType(expression AstExprNode) *Type {
 			}
 		}
 		return optimizer.globals[node.Name]
+	case *AstUnaryExpr:
+		if node.Op == UnaryLogicalNot {
+			return BoolType
+		}
+		return optimizer.exprType(node.Operand)
 	case *AstBinaryExpr:
 		if node.Op == "&&" || node.Op == "||" {
 			return BoolType
 		}
 		if optimizerIsComparison(node.Op) {
-			return Int32Type
+			return BoolType
 		}
 		return optimizerPromoteNumericType(optimizer.exprType(node.Left), optimizer.exprType(node.Right))
 	case *AstCallExpr:
@@ -396,8 +411,11 @@ func optimizerSignedOrUnsignedValue(bits uint64, kind optimizerNumericKind) int6
 	}
 }
 
-func optimizerArithmetic(kind optimizerNumericKind, op string, left, right uint64) (uint64, error) {
-	if op == "/" && optimizerIsZero(kind, right) {
+func optimizerArithmetic(kind optimizerNumericKind, op BinaryOp, left, right uint64) (uint64, error) {
+	if (op == BinaryDiv || op == BinaryModulo) && optimizerIsZero(kind, right) {
+		if op == BinaryModulo {
+			return 0, fmt.Errorf("modulo by zero")
+		}
 		return 0, fmt.Errorf("division by zero")
 	}
 	switch kind {
@@ -419,17 +437,29 @@ func optimizerArithmetic(kind optimizerNumericKind, op string, left, right uint6
 	}
 }
 
-func optimizerSignedArithmetic(op string, left, right int64, width uint) uint64 {
+func optimizerSignedArithmetic(op BinaryOp, left, right int64, width uint) uint64 {
 	var result int64
 	switch op {
-	case "+":
+	case BinaryAdd:
 		result = left + right
-	case "-":
+	case BinarySub:
 		result = left - right
-	case "*":
+	case BinaryMul:
 		result = left * right
-	case "/":
+	case BinaryDiv:
 		result = left / right
+	case BinaryModulo:
+		result = left % right
+	case BinaryBitwiseAnd:
+		result = left & right
+	case BinaryBitwiseOr:
+		result = left | right
+	case BinaryBitwiseXor:
+		result = left ^ right
+	case BinaryShiftLeft:
+		result = left << (uint64(right) & uint64(width-1))
+	case BinaryShiftRight:
+		result = left >> (uint64(right) & uint64(width-1))
 	}
 	if width == 64 {
 		return uint64(result)
@@ -437,17 +467,38 @@ func optimizerSignedArithmetic(op string, left, right int64, width uint) uint64 
 	return uint64(result) & ((uint64(1) << width) - 1)
 }
 
-func optimizerUnsignedArithmetic(op string, left, right uint64, kind optimizerNumericKind) uint64 {
+func optimizerUnsignedArithmetic(op BinaryOp, left, right uint64, kind optimizerNumericKind) uint64 {
 	var result uint64
+	width := uint(64)
+	switch kind {
+	case optimizerUint8:
+		width = 8
+	case optimizerUint16:
+		width = 16
+	case optimizerUint32:
+		width = 32
+	}
 	switch op {
-	case "+":
+	case BinaryAdd:
 		result = left + right
-	case "-":
+	case BinarySub:
 		result = left - right
-	case "*":
+	case BinaryMul:
 		result = left * right
-	case "/":
+	case BinaryDiv:
 		result = left / right
+	case BinaryModulo:
+		result = left % right
+	case BinaryBitwiseAnd:
+		result = left & right
+	case BinaryBitwiseOr:
+		result = left | right
+	case BinaryBitwiseXor:
+		result = left ^ right
+	case BinaryShiftLeft:
+		result = left << (right & uint64(width-1))
+	case BinaryShiftRight:
+		result = left >> (right & uint64(width-1))
 	}
 	switch kind {
 	case optimizerUint8:
@@ -461,7 +512,7 @@ func optimizerUnsignedArithmetic(op string, left, right uint64, kind optimizerNu
 	}
 }
 
-func optimizerFloat32Arithmetic(op string, left, right float32) float32 {
+func optimizerFloat32Arithmetic(op BinaryOp, left, right float32) float32 {
 	switch op {
 	case "+":
 		return left + right
@@ -476,7 +527,7 @@ func optimizerFloat32Arithmetic(op string, left, right float32) float32 {
 	}
 }
 
-func optimizerFloatArithmetic(op string, left, right float64) float64 {
+func optimizerFloatArithmetic(op BinaryOp, left, right float64) float64 {
 	switch op {
 	case "+":
 		return left + right
@@ -491,7 +542,7 @@ func optimizerFloatArithmetic(op string, left, right float64) float64 {
 	}
 }
 
-func optimizerCompare(kind optimizerNumericKind, op string, left, right uint64) int {
+func optimizerCompare(kind optimizerNumericKind, op BinaryOp, left, right uint64) int {
 	switch kind {
 	case optimizerFloat32:
 		return optimizerCompareFloat(op, float64(math.Float32frombits(uint32(left))), float64(math.Float32frombits(uint32(right))))
@@ -517,7 +568,7 @@ func optimizerUnsignedValue(bits uint64, kind optimizerNumericKind) uint64 {
 	}
 }
 
-func optimizerCompareInt(op string, left, right int64) int {
+func optimizerCompareInt(op BinaryOp, left, right int64) int {
 	switch op {
 	case "==":
 		return optimizerBoolInt(left == right)
@@ -536,7 +587,7 @@ func optimizerCompareInt(op string, left, right int64) int {
 	}
 }
 
-func optimizerCompareUint(op string, left, right uint64) int {
+func optimizerCompareUint(op BinaryOp, left, right uint64) int {
 	switch op {
 	case "==":
 		return optimizerBoolInt(left == right)
@@ -555,7 +606,7 @@ func optimizerCompareUint(op string, left, right uint64) int {
 	}
 }
 
-func optimizerCompareFloat(op string, left, right float64) int {
+func optimizerCompareFloat(op BinaryOp, left, right float64) int {
 	switch op {
 	case "==":
 		return optimizerBoolInt(left == right)
@@ -585,7 +636,7 @@ func optimizerIsZero(kind optimizerNumericKind, bits uint64) bool {
 	}
 }
 
-func optimizerIsComparison(op string) bool {
+func optimizerIsComparison(op BinaryOp) bool {
 	switch op {
 	case "==", "!=", "<", "<=", ">", ">=":
 		return true

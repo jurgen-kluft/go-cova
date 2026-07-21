@@ -20,7 +20,24 @@ namespace ncore
         OpCall,
         OpCallExtern,
         OpRet,
+        OpBuiltIn,
         OpcodeCount,
+    };
+
+    typedef u16 builtin_function_t;
+
+    enum ebuiltinoperation_t : u8
+    {
+        BuiltInOperationInvalid = 0,
+        BuiltInAbs,
+        BuiltInSin,
+        BuiltInCos,
+        BuiltInTan,
+        BuiltInAsin,
+        BuiltInAcos,
+        BuiltInAtan,
+        BuiltInPow,
+        BuiltInSqrt,
     };
 
     enum earithmeticop_t : u8
@@ -30,6 +47,12 @@ namespace ncore
         ArithmeticSub,
         ArithmeticMul,
         ArithmeticDiv,
+        ArithmeticModulo,
+        ArithmeticBitwiseAnd,
+        ArithmeticBitwiseOr,
+        ArithmeticBitwiseXor,
+        ArithmeticShiftLeft,
+        ArithmeticShiftRight,
     };
 
     enum ecompareop_t : u8
@@ -89,6 +112,11 @@ namespace ncore
     instruction_t make_address_instruction(ememorysegment_t segment);
     instruction_t make_compare_instruction(evaluekind_t kind, ecompareop_t operation);
     instruction_t make_convert_instruction(evaluekind_t from, evaluekind_t to);
+    instruction_t make_builtin_instruction(builtin_function_t function);
+
+    builtin_function_t make_builtin_function(ebuiltinoperation_t operation, evaluekind_t kind);
+    ebuiltinoperation_t builtin_function_operation(builtin_function_t function);
+    evaluekind_t builtin_function_kind(builtin_function_t function);
 
     eopcode_t        instruction_opcode(instruction_t instruction);
     evaluekind_t     instruction_kind(instruction_t instruction);
@@ -96,6 +124,7 @@ namespace ncore
     ememorysegment_t instruction_address_segment(instruction_t instruction);
     ecompareop_t     instruction_compare_op(instruction_t instruction);
     evaluekind_t     instruction_convert_from_kind(instruction_t instruction);
+    builtin_function_t instruction_builtin_function(instruction_t instruction);
 
     address_t        make_address(ememorysegment_t segment, u32 index);
     ememorysegment_t address_segment(address_t address);
